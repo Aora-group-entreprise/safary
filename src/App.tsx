@@ -194,7 +194,7 @@ export default function App(){
  const signOut=async()=>{if(client){const {error}=await client.auth.signOut();if(error)notify(error.message);else{setScreen('auth');setSession(null);setUser(null)}}};
 
  const groupedStories=useMemo(()=>{const map=new Map<string,Story[]>();for(const s of stories){const list=map.get(s.user_id)??[];list.push(s);map.set(s.user_id,list)}return [...map.values()].map(items=>items[0])},[stories]);
- const activeStory=stories[storyIndex];
+ const activeStory=stories[storyIndex];\n useEffect(()=>()=>{stories.forEach(story=>{if(story.url.startsWith('blob:'))URL.revokeObjectURL(story.url)})},[stories]);
  if(loading)return <main className="app-shell"><section className="phone-frame loading-state"><span className="brand">SAFARY</span><p>Chargement sécurisé…</p></section></main>;
 
  return <main className="app-shell"><div className="ambient ambient-one"/><div className="ambient ambient-two"/><section className="phone-frame">
