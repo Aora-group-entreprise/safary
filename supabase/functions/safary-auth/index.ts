@@ -5,7 +5,7 @@ const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const db = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
 const cors = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-safary-session",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Content-Type": "application/json",
 };
@@ -152,6 +152,10 @@ Deno.serve(async (req: Request) => {
       const { data, error } = await db.from("safary_accounts").update({ username, display_name: displayName || username, bio, updated_at: new Date().toISOString() }).eq("id", auth.account.id).select("id,username,display_name,age,bio,avatar_path,cover_path").single();
       if (error?.code === "23505") return json(409, { error: "Ce pseudo est déjà utilisé." });
       if (error) throw error;
+      const profileUpdate = await db.from("profiles").update({
+        username, display_name: displayName || username, bio, updated_at: new Date().toISOString(),
+      }).eq("id", auth.account.id);
+      if (profileUpdate.error) throw profileUpdate.error;
       return json(200, { account: await signedAccount(data) });
     }
     return json(400, { error: "Action inconnue." });
