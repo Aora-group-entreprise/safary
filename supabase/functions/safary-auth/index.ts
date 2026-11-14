@@ -5,7 +5,7 @@ const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const db = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
 const cors = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-safary-session",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Content-Type": "application/json",
 };
@@ -38,7 +38,7 @@ function parseImage(dataUrl: unknown) {
   const match = dataUrl.match(/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/);
   if (!match) throw new Error("Format d’image invalide. Utilise JPG, PNG ou WebP.");
   const binary = atob(match[2]);
-  if (binary.length < 100 || binary.length > 1536 * 1024) throw new Error("Chaque image doit faire moins de 3 Mo.");
+  if (binary.length < 100 || binary.length > 1536 * 1024) throw new Error("Chaque image doit faire moins de 1,5 Mo.");
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   return { bytes, contentType: match[1], extension: match[1] === "image/jpeg" ? "jpg" : match[1].split("/")[1] };
