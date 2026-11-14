@@ -63,7 +63,7 @@ export default function App(){
   if(!client)return;
   const {data,error}=await client.from('profiles').select('id,username,display_name,avatar_url,bio').eq('id',uid).maybeSingle();
   if(error){notify(error.message);return}
-  if(data){let resolvedAvatar=data.avatar_url??'';if(resolvedAvatar&&!resolvedAvatar.startsWith('http')){const signed=await client.storage.from('profile-media').createSignedUrl(resolvedAvatar,3600);resolvedAvatar=signed.data?.signedUrl??'';}const p={...data,avatar_url:resolvedAvatar} as Profile;setProfile(p);setDisplayName(p.display_name??'');setUsername(p.username??'');setBio(p.bio??'');setAvatarUrl(resolvedAvatar)}
+  if(data){let resolvedAvatar=data.avatar_url??'';if(resolvedAvatar&&!resolvedAvatar.startsWith('http')){const signed=await client.storage.from('profile-media').createSignedUrl(resolvedAvatar,3600);resolvedAvatar=signed.data?.signedUrl??'';}const p={...data,avatar_url:resolvedAvatar} as Profile;setProfile(p);setDisplayName(p.display_name??'');setUsername(p.username??'');setBio(p.bio??'');setAvatarUrl(data.avatar_url?.startsWith('http')?data.avatar_url:'')}
   const pref=await client.from('user_settings').select('online_status_visible,notifications_enabled').eq('user_id',uid).maybeSingle();
   if(pref.data)setSettings(pref.data);
  },[client]);
@@ -257,8 +257,10 @@ export default function App(){
   setBusy(true);
   const {data,error}=await client.functions.invoke('safary-auth',{body:{action:'profile-update',username:username.trim().toLowerCase(),displayName:displayName.trim(),bio}});
   if(error){notify(error.message);setBusy(false);return}
-  const profileUpdate=await client.from('profiles').update({avatar_url:avatarUrl.trim()||null}).eq('id',user.id).select('id,username,display_name,avatar_url,bio').single();
-  if(profileUpdate.error)notify(profileUpdate.error.message);else{setProfile({...profileUpdate.data,avatar_url:avatarUrl.trim()||null} as Profile);notify('Profil mis à jour.')}
+  const profileUpdate=avatarUrl.trim().startsWith('http')
+   ? await client.from('profiles').update({avatar_url:avatarUrl.trim()}).eq('id',user.id).select('id,username,display_name,avatar_url,bio').single()
+   : await client.from('profiles').select('id,username,display_name,avatar_url,bio').eq('id',user.id).single();
+  if(profileUpdate.error)notify(profileUpdate.error.message);else{const saved=profileUpdate.data as Profile;let resolved=saved.avatar_url;if(resolved&&!resolved.startsWith('http')){const signed=await client.storage.from('profile-media').createSignedUrl(resolved,3600);resolved=signed.data?.signedUrl??null}setProfile({...saved,avatar_url:resolved});notify('Profil mis à jour.')}
   setBusy(false);
  };
  const updateSetting=async(key:'online_status_visible'|'notifications_enabled',value:boolean)=>{
