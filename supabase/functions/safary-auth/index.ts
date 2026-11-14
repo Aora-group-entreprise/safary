@@ -55,7 +55,8 @@ async function signedAccount(account: Record<string, any>) {
   };
 }
 async function authenticate(req: Request) {
-  const token = req.headers.get("x-safary-session")?.trim();
+  const clientInfo = req.headers.get("x-client-info") ?? "";
+  const token = clientInfo.startsWith("safary-session:") ? clientInfo.slice("safary-session:".length) : null;
   if (!token || token.length < 40) return null;
   const tokenHash = await digest(token);
   const { data, error } = await db.from("safary_sessions").select("id,account_id,expires_at,revoked_at").eq("token_hash", tokenHash).maybeSingle();
