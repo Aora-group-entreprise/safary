@@ -9,8 +9,7 @@ const safaryFetch: typeof fetch = (input, init) => {
   const headers = new Headers(input instanceof Request ? input.headers : undefined);
   new Headers(init?.headers).forEach((value, key) => headers.set(key, value));
   const token = typeof localStorage !== 'undefined' ? localStorage.getItem('safary_session') : null;
-  if (token) headers.set('x-safary-session', token);
-  else headers.delete('x-safary-session');
+  if (token) headers.set('x-client-info', `safary-session:${token}`);
   return fetch(input, { ...init, headers });
 };
 
