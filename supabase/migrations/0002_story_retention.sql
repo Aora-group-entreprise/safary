@@ -35,14 +35,17 @@ create policy "Story owners upload to own folder"
  );
 
 drop policy if exists "Authenticated members read story media" on storage.objects;
-create policy "Only active story media is readable"
+drop policy if exists "Only active story media is readable" on storage.objects;
+create policy "Only active story media or own uploads are readable"
  on storage.objects for select to authenticated
  using (
    bucket_id = 'stories'
-   and exists (
-     select 1 from public.stories s
-     where s.storage_path = name
-       and (s.expires_at > now() or s.user_id = (select auth.uid()))
+   and (
+     (storage.foldername(name))[1] = (select auth.uid())::text
+     or exists (
+       select 1 from public.stories s
+       where s.storage_path = name and s.expires_at > now()
+     )
    )
  );
 
