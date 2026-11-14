@@ -5,21 +5,24 @@ Deno.serve(async (req) => {
     return new Response('Method not allowed', { status: 405, headers: { Allow: 'POST' } });
   }
 
-  const secret = Deno.env.get('CRON_SECRET');
   const url = Deno.env.get('SUPABASE_URL');
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 
-  if (!secret || !url || !serviceKey) {
+  if (!url || !serviceKey) {
     console.error('Missing cleanup function environment variables.');
     return new Response('Server configuration error', { status: 500 });
   }
-  if (req.headers.get('x-cron-secret') !== secret) {
-    return new Response('Unauthorized', { status: 401 });
-  }
-
   const db = createClient(url, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
+  const { data: expectedSecret, error: secretError } = await db.rpc('get_safary_story_cleanup_secret');
+  if (secretError || !expectedSecret) {
+    console.error('Unable to load the cleanup secret from Vault:', secretError?.message);
+    return new Response('Server configuration error', { status: 500 });
+  }
+  if (req.headers.get('x-cron-secret') !== expectedSecret) {
+    return new Response('Unauthorized', { status: 401 });
+  }
 
   const { data: items, error } = await db.rpc('expired_story_objects');
   if (error) {
