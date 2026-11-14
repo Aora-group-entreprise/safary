@@ -1,6 +1,6 @@
 import {useCallback,useEffect,useMemo,useState} from 'react';
 import type {FormEvent} from 'react';
-import {ArrowLeft,Camera,Check,ChevronRight,Heart,ImagePlus,LogOut,MessageCircle,MoreHorizontal,PencilLine,Plus,RefreshCw,Search,Send,Settings,Trash2,UserRound,X} from 'lucide-react';
+import {ArrowLeft,Camera,ChevronRight,ImagePlus,LogOut,MessageCircle,MoreHorizontal,PencilLine,Plus,RefreshCw,Search,Send,Settings,Trash2,UserRound,X} from 'lucide-react';
 import type {Session,User} from '@supabase/supabase-js';
 import {isSupabaseConfigured,supabase} from './lib/supabase';
 
