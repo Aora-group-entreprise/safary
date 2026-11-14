@@ -168,7 +168,7 @@ export default function App(){
    const mime=MediaRecorder.isTypeSupported('audio/webm;codecs=opus')?'audio/webm;codecs=opus':MediaRecorder.isTypeSupported('audio/mp4')?'audio/mp4':undefined;
    const recorder=new MediaRecorder(stream,mime?{mimeType:mime}:undefined);recorderChunks.current=[];
    recorder.ondataavailable=e=>{if(e.data.size)recorderChunks.current.push(e.data)};
-   recorder.onstop=()=>{stream.getTracks().forEach(track=>track.stop());setRecording(false);const type=recorder.mimeType||'audio/webm';const ext=type.includes('mp4')?'m4a':type.includes('ogg')?'ogg':'webm';const blob=new Blob(recorderChunks.current,{type});void uploadChatFile(new File([blob],'vocal-'+Date.now()+'.'+ext,{type}),'voice')};
+   recorder.onstop=()=>{stream.getTracks().forEach(track=>track.stop());setRecording(false);const type=(recorder.mimeType||'audio/webm').split(';')[0];const ext=type.includes('mp4')?'m4a':type.includes('ogg')?'ogg':'webm';const blob=new Blob(recorderChunks.current,{type});void uploadChatFile(new File([blob],'vocal-'+Date.now()+'.'+ext,{type}),'voice')};
    recorderRef.current=recorder;recorder.start();setRecording(true);
   }catch(error){notify(error instanceof Error?error.message:'Impossible d’accéder au microphone.')}
  };
