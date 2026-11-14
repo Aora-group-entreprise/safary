@@ -29,14 +29,15 @@ Les migrations sont versionnées dans `supabase/migrations` et ont été appliqu
 1. `0001_initial_schema.sql` — tables, RLS, profils, conversations et publication Realtime.
 2. `0002_story_retention.sql` — bucket privé et durée de vie de 48 h.
 3. `0003_supporting_indexes.sql` — index supplémentaires.
+4. `0004_story_cleanup_schedule.sql` — secret stocké dans Vault et nettoyage automatique toutes les heures via pg_cron + pg_net.
 
 Les profils sont visibles aux membres connectés pour permettre la recherche. Ne place aucune donnée privée dans la table `profiles`. Les conversations et messages sont limités aux membres par RLS. La fonction `create_direct_conversation` est volontairement SECURITY DEFINER : elle vérifie `auth.uid()`, refuse un destinataire absent ou identique et crée les deux adhésions atomiquement. Les clients ne disposent d'aucun droit d'insertion direct dans `conversation_members`.
 
 ## Stories : nettoyage
-La base impose l'expiration exacte à 48 heures et masque immédiatement les Stories expirées. La fonction Edge `cleanup-expired-stories` est déployée. Pour la suppression physique des fichiers expirés, il reste à définir les secrets serveur `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `CRON_SECRET` et à planifier un appel POST régulier avec l'en-tête `x-cron-secret`. La clé service-role et le secret cron ne doivent jamais être exposés au frontend. Tant que ces secrets et la planification ne sont pas configurés, les médias expirés restent stockés même s'ils ne sont plus visibles.
+La base impose l'expiration exacte à 48 heures et masque immédiatement les Stories expirées. La fonction Edge `cleanup-expired-stories` est déployée. Le secret aléatoire est créé et conservé dans Supabase Vault ; pg_cron + pg_net appellent automatiquement la fonction chaque heure. La fonction utilise les variables serveur intégrées de Supabase et vérifie le secret côté serveur. Aucun secret de nettoyage n'est exposé au navigateur.
 
 ## Configuration Auth requise
-Dans le dashboard Supabase, activer le fournisseur Phone, configurer un fournisseur SMS et les règles de vérification souhaitées. Sans fournisseur SMS configuré, l'inscription avec confirmation par SMS ne pourra pas aboutir. Configurer aussi les limites anti-abus et les modèles SMS avant une ouverture publique.
+Dans le dashboard Supabase, activer le fournisseur Phone et configurer un fournisseur SMS ainsi que les règles de vérification souhaitées. Sans fournisseur SMS configuré, l'inscription avec confirmation par SMS ne pourra pas aboutir. Configurer aussi les limites anti-abus et les modèles SMS avant une ouverture publique.
 
 ## État et limites
 Les principaux parcours V1 sont désormais connectés au backend, mais une CI verte ne remplace pas les tests de bout en bout avec deux vrais comptes et deux appareils. Les vocaux, pièces jointes de messages, notifications push, modération, blocage/signalement et publication mobile ne font pas partie du parcours fonctionnel livré dans cette version. Ne pas annoncer l'application comme prête pour une ouverture publique avant ces tests et la configuration SMS/cron.
