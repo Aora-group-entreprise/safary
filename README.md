@@ -30,6 +30,7 @@ Les migrations sont versionnées dans `supabase/migrations` et ont été appliqu
 2. `0002_story_retention.sql` — bucket privé et durée de vie de 48 h.
 3. `0003_supporting_indexes.sql` — index supplémentaires.
 4. `0004_story_cleanup_schedule.sql` — secret stocké dans Vault et nettoyage automatique toutes les heures via pg_cron + pg_net.
+5. `0005_private_conversation_rpc.sql` — isole la fonction privilégiée de création de conversation dans le schéma privé.
 
 Les profils sont visibles aux membres connectés pour permettre la recherche. Ne place aucune donnée privée dans la table `profiles`. Les conversations et messages sont limités aux membres par RLS. La fonction `create_direct_conversation` est volontairement SECURITY DEFINER : elle vérifie `auth.uid()`, refuse un destinataire absent ou identique et crée les deux adhésions atomiquement. Les clients ne disposent d'aucun droit d'insertion direct dans `conversation_members`.
 
