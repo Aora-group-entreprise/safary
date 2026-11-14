@@ -215,7 +215,7 @@ export default function App(){
     if(!Number.isInteger(Number(age))||Number(age)<1||Number(age)>120)throw new Error('Âge invalide.');
     if(!avatarFile||!coverFile)throw new Error('Ajoute ta photo de profil et ta photo de couverture.');
     if(!['image/jpeg','image/png','image/webp'].includes(avatarFile.type)||!['image/jpeg','image/png','image/webp'].includes(coverFile.type))throw new Error('Les photos doivent être au format JPG, PNG ou WebP.');
-    if(avatarFile.size>3*1024*1024||coverFile.size>3*1024*1024)throw new Error('Chaque photo doit faire moins de 3 Mo.');
+    if(avatarFile.size>1536*1024||coverFile.size>1536*1024)throw new Error('Chaque photo doit faire moins de 1,5 Mo.');
     const [avatarDataUrl,coverDataUrl]=await Promise.all([fileToDataUrl(avatarFile),fileToDataUrl(coverFile)]);
     const {data,error}=await client.functions.invoke('safary-auth',{body:{action:'signup',username:username.trim(),password,confirmPassword,age:Number(age),avatarDataUrl,coverDataUrl}});
     if(error)throw new Error(data?.error??error.message);
