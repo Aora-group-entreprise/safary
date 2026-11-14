@@ -20,7 +20,7 @@ Réseau social SAFARY — les 7 écrans convenus : Messages, Discussion, Créati
 1. Installer Node.js LTS.
 2. Exécuter `npm install`.
 3. Copier `.env.example` vers `.env`.
-4. Renseigner `VITE_SUPABASE_URL` et `VITE_SUPABASE_ANON_KEY`. La valeur de la deuxième variable doit être une clé publique Supabase (publishable ou legacy anon), jamais une clé `service_role`/secret.
+4. Renseigner `VITE_SUPABASE_URL` et `VITE_SUPABASE_PUBLISHABLE_KEY`. Le projet SAFARY possède déjà une configuration publique de secours dans le client web ; ces variables permettent de remplacer la cible pour les environnements de déploiement. La valeur de la deuxième variable doit être une clé publique Supabase (publishable ou legacy anon), jamais une clé `service_role`/secret.
 5. Exécuter `npm run dev`.
 6. Vérifier `npm run typecheck` puis `npm run build`.
 
