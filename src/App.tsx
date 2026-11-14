@@ -1,11 +1,13 @@
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react';
 import type {FormEvent} from 'react';
 import {ArrowLeft,Camera,ChevronRight,ImagePlus,LogOut,MessageCircle,Mic,MoreHorizontal,PencilLine,Plus,RefreshCw,Search,Send,Settings,Square,Trash2,UserRound,X} from 'lucide-react';
-import type {Session,User} from '@supabase/supabase-js';
+type Session={access_token:string};
+type User={id:string};
 import {isSupabaseConfigured,supabase} from './lib/supabase';
 
 type Screen='messages'|'chat'|'create-story'|'profile'|'settings'|'auth'|'story-viewer';
 type Profile={id:string;username:string;display_name:string;avatar_url:string|null;bio:string};
+const fileToDataUrl=(file:File)=>new Promise<string>((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result));reader.onerror=()=>reject(new Error('Lecture du fichier impossible.'));reader.readAsDataURL(file)});
 type Story={id:string;user_id:string;storage_path:string;media_type:'image'|'video';caption:string;created_at:string;expires_at:string;url:string;profile:Profile};
 type ChatRow={id:string;user:Profile;lastMessage:string;lastAt:string};
 type Attachment={id:string;message_id:string;storage_path:string;file_name:string;mime_type:string;size_bytes:number;url:string};
@@ -36,11 +38,12 @@ export default function App(){
  const [username,setUsername]=useState('');
  const [bio,setBio]=useState('');
  const [avatarUrl,setAvatarUrl]=useState('');
- const [phone,setPhone]=useState('');
  const [password,setPassword]=useState('');
- const [otp,setOtp]=useState('');
+ const [confirmPassword,setConfirmPassword]=useState('');
+ const [age,setAge]=useState('');
+ const [avatarFile,setAvatarFile]=useState<File|null>(null);
+ const [coverFile,setCoverFile]=useState<File|null>(null);
  const [authMode,setAuthMode]=useState<'login'|'signup'>('login');
- const [pendingOtp,setPendingOtp]=useState(false);
  const [searchOpen,setSearchOpen]=useState(false);
  const [searchTerm,setSearchTerm]=useState('');
  const [searchResults,setSearchResults]=useState<Profile[]>([]);
@@ -60,7 +63,7 @@ export default function App(){
   if(!client)return;
   const {data,error}=await client.from('profiles').select('id,username,display_name,avatar_url,bio').eq('id',uid).maybeSingle();
   if(error){notify(error.message);return}
-  if(data){const p=data as Profile;setProfile(p);setDisplayName(p.display_name??'');setUsername(p.username??'');setBio(p.bio??'');setAvatarUrl(p.avatar_url??'')}
+  if(data){let resolvedAvatar=data.avatar_url??'';if(resolvedAvatar&&!resolvedAvatar.startsWith('http')){const signed=await client.storage.from('profile-media').createSignedUrl(resolvedAvatar,3600);resolvedAvatar=signed.data?.signedUrl??'';}const p={...data,avatar_url:resolvedAvatar} as Profile;setProfile(p);setDisplayName(p.display_name??'');setUsername(p.username??'');setBio(p.bio??'');setAvatarUrl(resolvedAvatar)}
   const pref=await client.from('user_settings').select('online_status_visible,notifications_enabled').eq('user_id',uid).maybeSingle();
   if(pref.data)setSettings(pref.data);
  },[client]);
@@ -75,7 +78,8 @@ export default function App(){
    if(members.error)notify(members.error.message);
    const otherIds=[...new Set((members.data??[]).map((x:any)=>x.user_id as string).filter((x:string)=>x!==uid))];
    const people=otherIds.length?await client.from('profiles').select('id,username,display_name,avatar_url,bio').in('id',otherIds):{data:[],error:null};
-   const byId=new Map((people.data??[]).map((p:any)=>[p.id,p as Profile]));
+   const signedPeople=await Promise.all((people.data??[]).map(async(p:any)=>{if(p.avatar_url&&!p.avatar_url.startsWith('http')){const signed=await client.storage.from('profile-media').createSignedUrl(p.avatar_url,3600);return {...p,avatar_url:signed.data?.signedUrl??null} as Profile}return p as Profile}));
+   const byId=new Map(signedPeople.map((p:any)=>[p.id,p as Profile]));
    const last=await client.from('messages').select('id,conversation_id,body,created_at,sender_id').in('conversation_id',ids).order('created_at',{ascending:false});
    const latest=new Map<string,any>();
    for(const m of last.data??[])if(!latest.has(m.conversation_id))latest.set(m.conversation_id,m);
@@ -88,7 +92,8 @@ export default function App(){
   const raw=active.data??[];
   const storyUsers=[...new Set(raw.map((s:any)=>s.user_id as string))];
   const people=storyUsers.length?await client.from('profiles').select('id,username,display_name,avatar_url,bio').in('id',storyUsers):{data:[],error:null};
-  const profileMap=new Map((people.data??[]).map((p:any)=>[p.id,p as Profile]));
+  const signedPeople=await Promise.all((people.data??[]).map(async(p:any)=>{if(p.avatar_url&&!p.avatar_url.startsWith('http')){const signed=await client.storage.from('profile-media').createSignedUrl(p.avatar_url,3600);return {...p,avatar_url:signed.data?.signedUrl??null} as Profile}return p as Profile}));
+  const profileMap=new Map(signedPeople.map((p:any)=>[p.id,p as Profile]));
   const resolved=await Promise.all(raw.map(async(s:any)=>{
    const {data}=await client.storage.from('stories').createSignedUrl(s.storage_path,3600);
    const p=profileMap.get(s.user_id);return p&&data?.signedUrl?{...s,url:data.signedUrl,profile:p} as Story:null;
@@ -97,11 +102,19 @@ export default function App(){
  },[client]);
 
  useEffect(()=>{
-  if(!client){setLoading(false);notify('Ajoute VITE_SUPABASE_URL et VITE_SUPABASE_ANON_KEY pour connecter SAFARY à Supabase.');return}
+  if(!client){setLoading(false);notify('Configuration Supabase manquante.');return}
   let alive=true;
-  client.auth.getSession().then(({data})=>{if(!alive)return;setSession(data.session);setUser(data.session?.user??null);setLoading(false);if(!data.session)setScreen('auth')});
-  const {data:{subscription}}=client.auth.onAuthStateChange((_event,next)=>{setSession(next);setUser(next?.user??null);if(!next){setProfile(null);setChats([]);setStories([]);setScreen('auth')}});
-  return()=>{alive=false;subscription.unsubscribe()};
+  const restore=async()=>{
+   const token=localStorage.getItem('safary_session');
+   if(!token){if(alive){setLoading(false);setScreen('auth')}return}
+   const {data,error}=await client.functions.invoke('safary-auth',{body:{action:'me'},headers:{'x-safary-session':token}});
+   if(!alive)return;
+   if(error||!data?.account){localStorage.removeItem('safary_session');setSession(null);setUser(null);setScreen('auth')}
+   else{setSession({access_token:token});setUser({id:data.account.id});setProfile(data.account);setDisplayName(data.account.display_name??'');setUsername(data.account.username??'');setBio(data.account.bio??'');setAvatarUrl(data.account.avatar_url??'')}
+   setLoading(false);
+  };
+  void restore();
+  return()=>{alive=false};
  },[client]);
 
  useEffect(()=>{
@@ -132,10 +145,8 @@ export default function App(){
 
  useEffect(()=>{
   if(!client||!conversationId||screen!=='chat')return;
-  const channel=client.channel('safary-chat-'+conversationId).on('postgres_changes',{event:'INSERT',schema:'public',table:'messages',filter:'conversation_id=eq.'+conversationId},()=>{
-   void loadMessages(conversationId);void loadHome(user?.id??'');
-  }).subscribe();
-  return()=>{void client.removeChannel(channel)};
+  const timer=window.setInterval(()=>{void loadMessages(conversationId);if(user?.id)void loadHome(user.id)},4000);
+  return()=>window.clearInterval(timer);
  },[client,conversationId,screen,user,loadHome,loadMessages]);
 
  const sendMessage=async(e:FormEvent)=>{
@@ -188,17 +199,29 @@ export default function App(){
  const submitAuth=async(e:FormEvent)=>{
   e.preventDefault();if(!client)return;setBusy(true);setNotice('');
   try{
-   if(pendingOtp){const {error}=await client.auth.verifyOtp({phone:phone.trim(),token:otp.trim(),type:'sms'});if(error)throw error;setPendingOtp(false);notify('Numéro confirmé. Bienvenue sur SAFARY.');}
-   else if(authMode==='login'){const {error}=await client.auth.signInWithPassword({phone:phone.trim(),password});if(error)throw error;}
-   else{
-    if(username.trim().length<3)throw new Error('Le nom utilisateur doit contenir au moins 3 caractères.');
-    const {data,error}=await client.auth.signUp({phone:phone.trim(),password,options:{data:{username:username.trim().toLowerCase(),display_name:displayName.trim()}}});
-    if(error)throw error;
-    if(data.session){notify('Compte créé. Bienvenue sur SAFARY.')}else{setPendingOtp(true);notify('Un code de confirmation a été envoyé si la confirmation SMS est activée.')}
+   if(authMode==='login'){
+    const {data,error}=await client.functions.invoke('safary-auth',{body:{action:'login',username:username.trim(),password}});
+    if(error)throw new Error(data?.error??error.message);
+    if(!data?.session?.token||!data?.account?.id)throw new Error(data?.error??'Connexion impossible.');
+    localStorage.setItem('safary_session',data.session.token);
+    setSession({access_token:data.session.token});setUser({id:data.account.id});setProfile(data.account);setScreen('messages');notify('Bienvenue sur SAFARY.');
+   }else{
+    if(username.trim().length<3)throw new Error('Le pseudo doit contenir au moins 3 caractères.');
+    if(password.length<10)throw new Error('Le mot de passe doit contenir au moins 10 caractères.');
+    if(password!==confirmPassword)throw new Error('Les mots de passe ne correspondent pas.');
+    if(!Number.isInteger(Number(age))||Number(age)<1||Number(age)>120)throw new Error('Âge invalide.');
+    if(!avatarFile||!coverFile)throw new Error('Ajoute ta photo de profil et ta photo de couverture.');
+    if(!['image/jpeg','image/png','image/webp'].includes(avatarFile.type)||!['image/jpeg','image/png','image/webp'].includes(coverFile.type))throw new Error('Les photos doivent être au format JPG, PNG ou WebP.');
+    if(avatarFile.size>3*1024*1024||coverFile.size>3*1024*1024)throw new Error('Chaque photo doit faire moins de 3 Mo.');
+    const [avatarDataUrl,coverDataUrl]=await Promise.all([fileToDataUrl(avatarFile),fileToDataUrl(coverFile)]);
+    const {data,error}=await client.functions.invoke('safary-auth',{body:{action:'signup',username:username.trim(),password,confirmPassword,age:Number(age),avatarDataUrl,coverDataUrl}});
+    if(error)throw new Error(data?.error??error.message);
+    if(!data?.session?.token||!data?.account?.id)throw new Error(data?.error??'Création du compte impossible.');
+    localStorage.setItem('safary_session',data.session.token);
+    setSession({access_token:data.session.token});setUser({id:data.account.id});setProfile(data.account);setScreen('messages');notify('Compte créé. Bienvenue sur SAFARY.');
    }
   }catch(err){notify(err instanceof Error?err.message:'Une erreur est survenue.')}finally{setBusy(false)}
  };
- const resendOtp=async()=>{if(!client)return;const {error}=await client.auth.resend({type:'sms',phone:phone.trim()});notify(error?.message??'Code renvoyé.');};
 
  const publishStory=async()=>{
   if(!client||!user||!storyFile)return;
@@ -228,8 +251,11 @@ export default function App(){
  const saveProfile=async(e:FormEvent)=>{
   e.preventDefault();if(!client||!user)return;
   if(!/^[a-z0-9_.]{3,30}$/i.test(username.trim())){notify('Le nom utilisateur doit contenir 3 à 30 caractères (lettres, chiffres, _ ou .).');return}
-  setBusy(true);const {data,error}=await client.from('profiles').update({username:username.trim().toLowerCase(),display_name:displayName.trim().slice(0,60),bio:bio.trim().slice(0,160),avatar_url:avatarUrl.trim()||null,updated_at:new Date().toISOString()}).eq('id',user.id).select('id,username,display_name,avatar_url,bio').single();
-  if(error)notify(error.message);else{setProfile(data as Profile);notify('Profil mis à jour.')}
+  setBusy(true);
+  const {data,error}=await client.functions.invoke('safary-auth',{body:{action:'profile-update',username:username.trim().toLowerCase(),displayName:displayName.trim(),bio}});
+  if(error){notify(error.message);setBusy(false);return}
+  const profileUpdate=await client.from('profiles').update({avatar_url:avatarUrl.trim()||null}).eq('id',user.id).select('id,username,display_name,avatar_url,bio').single();
+  if(profileUpdate.error)notify(profileUpdate.error.message);else{setProfile({...profileUpdate.data,avatar_url:avatarUrl.trim()||null} as Profile);notify('Profil mis à jour.')}
   setBusy(false);
  };
  const updateSetting=async(key:'online_status_visible'|'notifications_enabled',value:boolean)=>{
@@ -237,7 +263,7 @@ export default function App(){
   const {error}=await client.from('user_settings').update({...next,updated_at:new Date().toISOString()}).eq('user_id',user.id);
   if(error){setSettings(settings);notify(error.message)}
  };
- const signOut=async()=>{if(client){const {error}=await client.auth.signOut();if(error)notify(error.message);else{setScreen('auth');setSession(null);setUser(null)}}};
+ const signOut=async()=>{if(client){const token=localStorage.getItem('safary_session');const {error}=await client.functions.invoke('safary-auth',{body:{action:'logout'},headers:token?{'x-safary-session':token}:{}});if(error)notify(error.message);localStorage.removeItem('safary_session');setScreen('auth');setSession(null);setUser(null);setProfile(null);setChats([]);setStories([]);setMessages([])}};
 
  const groupedStories=useMemo(()=>{const map=new Map<string,Story[]>();for(const s of stories){const list=map.get(s.user_id)??[];list.push(s);map.set(s.user_id,list)}return [...map.values()].map(items=>items[0])},[stories]);
  const activeStory=stories[storyIndex];
@@ -245,15 +271,19 @@ export default function App(){
  if(loading)return <main className="app-shell"><section className="phone-frame loading-state"><span className="brand">SAFARY</span><p>Chargement sécurisé…</p></section></main>;
 
  return <main className="app-shell"><div className="ambient ambient-one"/><div className="ambient ambient-two"/><section className="phone-frame">
- {!isSupabaseConfigured&&<div className="setup-banner">Connexion Supabase requise : configure les deux variables VITE_SUPABASE_*.</div>}
+ {!isSupabaseConfigured&&<div className="setup-banner">Connexion SAFARY indisponible : vérifie la configuration Supabase.</div>}
  {(!session||!user||screen==='auth')&&<div className="auth-screen"><div className="auth-brand">SAFARY<span>Le lien qui nous rapproche.</span></div><form className="form-card" onSubmit={submitAuth}>
-  <h1>{pendingOtp?'Confirme ton numéro':authMode==='login'?'Bon retour':'Créer un compte'}</h1>
-  {pendingOtp?<><label>Code SMS<input inputMode="numeric" autoComplete="one-time-code" value={otp} onChange={e=>setOtp(e.target.value)} placeholder="Code à 6 chiffres" required/></label><button type="button" className="text-button" onClick={()=>void resendOtp()}>Renvoyer le code</button></>:<>
-   {authMode==='signup'&&<><label>Nom affiché<input value={displayName} onChange={e=>setDisplayName(e.target.value)} placeholder="Ton nom" maxLength={60} required/></label><label>Nom utilisateur<input value={username} onChange={e=>setUsername(e.target.value)} placeholder="ex. rakoto" minLength={3} maxLength={30} required/></label></>}
-   <label>Numéro de téléphone<input type="tel" autoComplete="tel" value={phone} onChange={e=>setPhone(e.target.value)} placeholder="+261..." required/></label><label>Mot de passe<input type="password" autoComplete={authMode==='login'?'current-password':'new-password'} value={password} onChange={e=>setPassword(e.target.value)} minLength={8} placeholder="8 caractères minimum" required/></label>
+  <h1>{authMode==='login'?'Bon retour':'Créer un compte'}</h1>
+  <label>Pseudo<input value={username} onChange={e=>setUsername(e.target.value)} placeholder="ex. rakoto" minLength={3} maxLength={30} autoComplete="username" required/></label>
+  <label>Mot de passe<input type="password" autoComplete={authMode==='login'?'current-password':'new-password'} value={password} onChange={e=>setPassword(e.target.value)} minLength={authMode==='login'?1:10} placeholder={authMode==='login'?'Ton mot de passe':'10 caractères minimum'} required/></label>
+  {authMode==='signup'&&<>
+   <label>Confirmer le mot de passe<input type="password" autoComplete="new-password" value={confirmPassword} onChange={e=>setConfirmPassword(e.target.value)} minLength={10} required/></label>
+   <label>Âge<input type="number" inputMode="numeric" min="1" max="120" value={age} onChange={e=>setAge(e.target.value)} required/></label>
+   <label>Photo de profil (PDP)<input type="file" accept="image/jpeg,image/png,image/webp" onChange={e=>setAvatarFile(e.target.files?.[0]??null)} required/></label>
+   <label>Photo de couverture (PDC)<input type="file" accept="image/jpeg,image/png,image/webp" onChange={e=>setCoverFile(e.target.files?.[0]??null)} required/></label>
   </>}
-  <button className="gradient-button full-width" disabled={busy||!isSupabaseConfigured}>{busy?'Patiente…':pendingOtp?'Confirmer':authMode==='login'?'Se connecter':'Créer mon compte'}</button>
-  {!pendingOtp&&<button type="button" className="text-button" onClick={()=>{setAuthMode(authMode==='login'?'signup':'login');setNotice('')}}>{authMode==='login'?'Créer un compte':'J’ai déjà un compte'}</button>}
+  <button className="gradient-button full-width" disabled={busy||!isSupabaseConfigured}>{busy?'Patiente…':authMode==='login'?'Se connecter':'Créer mon compte'}</button>
+  <button type="button" className="text-button" onClick={()=>{setAuthMode(authMode==='login'?'signup':'login');setPassword('');setConfirmPassword('');setNotice('')}}>{authMode==='login'?'Créer un compte':'J’ai déjà un compte'}</button>
   {notice&&<p className="notice">{notice}</p>}
  </form><p className="auth-foot">Un espace social pensé pour se retrouver.</p></div>}
  {session&&user&&screen!=='auth'&&<>
