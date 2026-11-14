@@ -12,6 +12,7 @@ Réseau social SAFARY — les 7 écrans convenus : Messages, Discussion, Créati
 - Création automatique du profil et des préférences lors de la création d'un compte.
 - Recherche des membres par nom utilisateur et démarrage d'une conversation privée.
 - Historique des messages persisté dans PostgreSQL et écoute des nouveaux messages via Realtime.
+- Envoi de photos, documents et messages vocaux enregistrés au microphone, avec stockage privé et lecture réservée aux membres de la conversation.
 - Stories photo/vidéo avec légende, URL signée privée, vues et suppression par le propriétaire.
 - Expiration serveur après 48 heures.
 - Modification du profil, statut en ligne, notifications et déconnexion.
@@ -31,6 +32,8 @@ Les migrations sont versionnées dans `supabase/migrations` et ont été appliqu
 3. `0003_supporting_indexes.sql` — index supplémentaires.
 4. `0004_story_cleanup_schedule.sql` — secret stocké dans Vault et nettoyage automatique toutes les heures via pg_cron + pg_net.
 5. `0005_private_conversation_rpc.sql` — isole la fonction privilégiée de création de conversation dans le schéma privé.
+6. `0006_message_attachments.sql` — bucket privé pour les fichiers et vocaux de discussion.
+7. `0007_message_storage_read_policy.sql` — sécurise l'accès aux fichiers en cours d'envoi.
 
 Les profils sont visibles aux membres connectés pour permettre la recherche. Ne place aucune donnée privée dans la table `profiles`. Les conversations et messages sont limités aux membres par RLS. La fonction `create_direct_conversation` est volontairement SECURITY DEFINER : elle vérifie `auth.uid()`, refuse un destinataire absent ou identique et crée les deux adhésions atomiquement. Les clients ne disposent d'aucun droit d'insertion direct dans `conversation_members`.
 
@@ -41,4 +44,4 @@ La base impose l'expiration exacte à 48 heures et masque immédiatement les Sto
 Dans le dashboard Supabase, activer le fournisseur Phone et configurer un fournisseur SMS ainsi que les règles de vérification souhaitées. Sans fournisseur SMS configuré, l'inscription avec confirmation par SMS ne pourra pas aboutir. Configurer aussi les limites anti-abus et les modèles SMS avant une ouverture publique.
 
 ## État et limites
-Les principaux parcours V1 sont désormais connectés au backend, mais une CI verte ne remplace pas les tests de bout en bout avec deux vrais comptes et deux appareils. Les vocaux, pièces jointes de messages, notifications push, modération, blocage/signalement et publication mobile ne font pas partie du parcours fonctionnel livré dans cette version. Ne pas annoncer l'application comme prête pour une ouverture publique avant ces tests et la configuration SMS/cron.
+Les principaux parcours V1 sont désormais connectés au backend, mais une CI verte ne remplace pas les tests de bout en bout avec deux vrais comptes et deux appareils. Les notifications push, la modération, le blocage/signalement et la publication mobile ne font pas partie du parcours fonctionnel livré dans cette version. Ne pas annoncer l'application comme prête pour une ouverture publique avant ces tests et la configuration SMS/cron.
