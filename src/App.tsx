@@ -1,6 +1,6 @@
-import {useCallback,useEffect,useMemo,useState} from 'react';
+import {useCallback,useEffect,useMemo,useRef,useState} from 'react';
 import type {FormEvent} from 'react';
-import {ArrowLeft,Camera,ChevronRight,ImagePlus,LogOut,MessageCircle,MoreHorizontal,PencilLine,Plus,RefreshCw,Search,Send,Settings,Trash2,UserRound,X} from 'lucide-react';
+import {ArrowLeft,Camera,ChevronRight,ImagePlus,LogOut,MessageCircle,Mic,MoreHorizontal,PencilLine,Plus,RefreshCw,Search,Send,Settings,Square,Trash2,UserRound,X} from 'lucide-react';
 import type {Session,User} from '@supabase/supabase-js';
 import {isSupabaseConfigured,supabase} from './lib/supabase';
 
@@ -8,9 +8,11 @@ type Screen='messages'|'chat'|'create-story'|'profile'|'settings'|'auth'|'story-
 type Profile={id:string;username:string;display_name:string;avatar_url:string|null;bio:string};
 type Story={id:string;user_id:string;storage_path:string;media_type:'image'|'video';caption:string;created_at:string;expires_at:string;url:string;profile:Profile};
 type ChatRow={id:string;user:Profile;lastMessage:string;lastAt:string};
-type Message={id:string;conversation_id:string;sender_id:string;body:string;message_type:string;created_at:string};
+type Attachment={id:string;message_id:string;storage_path:string;file_name:string;mime_type:string;size_bytes:number;url:string};
+type Message={id:string;conversation_id:string;sender_id:string;body:string;message_type:string;created_at:string;attachments?:Attachment[]};
 const MIME_TYPES=['image/jpeg','image/png','image/webp','image/gif','video/mp4','video/webm','video/quicktime'];
 const MAX_FILE=50*1024*1024;
+const CHAT_FILE_TYPES=['image/jpeg','image/png','image/webp','image/gif','application/pdf','text/plain','audio/webm','audio/ogg','audio/mp4','audio/mpeg','audio/wav'];
 const initials=(value:string)=>value.trim().split(/\s+/).slice(0,2).map(x=>x[0]?.toUpperCase()??'').join('')||'S';
 const timeLabel=(value:string)=>{const date=new Date(value);if(Number.isNaN(date.getTime()))return '';return new Intl.DateTimeFormat('fr-FR',{hour:'2-digit',minute:'2-digit'}).format(date)};
 function Avatar({profile,size='normal'}:{profile?:Partial<Profile>|null;size?:'small'|'normal'|'large'}){return <span className={'avatar avatar-'+size}>{profile?.avatar_url?<img src={profile.avatar_url} alt=""/>:initials(profile?.display_name||profile?.username||'SAFARY')}</span>}
@@ -46,6 +48,12 @@ export default function App(){
  const [busy,setBusy]=useState(false);
  const [notice,setNotice]=useState('');
  const [loading,setLoading]=useState(true);
+ const [recording,setRecording]=useState(false);
+ const recorderRef=useRef<MediaRecorder|null>(null);
+ const recorderChunks=useRef<Blob[]>([]);
+ const fileInputRef=useRef<HTMLInputElement|null>(null);
+ const attachmentUrls=useRef(new Map<string,string>());
+ useEffect(()=>()=>{attachmentUrls.current.forEach(url=>URL.revokeObjectURL(url));attachmentUrls.current.clear()},[]);
 
  const notify=(message:string)=>setNotice(message);
  const loadProfile=useCallback(async(uid:string)=>{
@@ -103,21 +111,32 @@ export default function App(){
   return()=>{active=false};
  },[client,user,loadProfile,loadHome]);
 
- const openChat=useCallback(async(row:ChatRow)=>{
+ const loadMessages=useCallback(async(id:string)=>{
   if(!client)return;
-  setContact(row.user);setConversationId(row.id);setScreen('chat');
-  const {data,error}=await client.from('messages').select('id,conversation_id,sender_id,body,message_type,created_at').eq('conversation_id',row.id).order('created_at',{ascending:true}).limit(300);
-  if(error)notify(error.message);else setMessages((data??[]) as Message[]);
+  const {data,error}=await client.from('messages').select('id,conversation_id,sender_id,body,message_type,created_at').eq('conversation_id',id).order('created_at',{ascending:true}).limit(300);
+  if(error){notify(error.message);return}
+  const rows=(data??[]) as Message[];const ids=rows.map(m=>m.id);
+  const result=ids.length?await client.from('message_attachments').select('id,message_id,storage_path,file_name,mime_type,size_bytes').in('message_id',ids):{data:[],error:null};
+  if(result.error)notify(result.error.message);
+  const byMessage=new Map<string,Attachment[]>();
+  for(const item of result.data??[]){
+   let url=attachmentUrls.current.get(item.storage_path);
+   if(!url){const downloaded=await client.storage.from('message-attachments').download(item.storage_path);if(downloaded.data){url=URL.createObjectURL(downloaded.data);attachmentUrls.current.set(item.storage_path,url)}}
+   if(url){const list=byMessage.get(item.message_id)??[];list.push({...item,url} as Attachment);byMessage.set(item.message_id,list)}
+  }
+  setMessages(rows.map(m=>({...m,attachments:byMessage.get(m.id)??[]})));
  },[client]);
+ const openChat=useCallback(async(row:ChatRow)=>{
+  setContact(row.user);setConversationId(row.id);setScreen('chat');setMessages([]);await loadMessages(row.id);
+ },[loadMessages]);
 
  useEffect(()=>{
   if(!client||!conversationId||screen!=='chat')return;
-  const channel=client.channel('safary-chat-'+conversationId).on('postgres_changes',{event:'INSERT',schema:'public',table:'messages',filter:'conversation_id=eq.'+conversationId},payload=>{
-   const incoming=payload.new as Message;setMessages(prev=>prev.some(m=>m.id===incoming.id)?prev:[...prev,incoming]);
-   void loadHome(user?.id??'');
+  const channel=client.channel('safary-chat-'+conversationId).on('postgres_changes',{event:'INSERT',schema:'public',table:'messages',filter:'conversation_id=eq.'+conversationId},()=>{
+   void loadMessages(conversationId);void loadHome(user?.id??'');
   }).subscribe();
   return()=>{void client.removeChannel(channel)};
- },[client,conversationId,screen,user,loadHome]);
+ },[client,conversationId,screen,user,loadHome,loadMessages]);
 
  const sendMessage=async(e:FormEvent)=>{
   e.preventDefault();const body=draft.trim();if(!client||!user||!conversationId||!body)return;
@@ -126,6 +145,33 @@ export default function App(){
   setMessages(prev=>prev.some(m=>m.id===data.id)?prev:[...prev,data as Message]);
  };
 
+ const uploadChatFile=async(file:File,kind:'image'|'file'|'voice'='file')=>{
+  if(!client||!user||!conversationId)return;
+  if(!CHAT_FILE_TYPES.includes(file.type)){notify('Type de fichier non accepté.');return}
+  if(file.size>MAX_FILE){notify('Le fichier dépasse la limite de 50 Mo.');return}
+  setBusy(true);
+  const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,'_');const path=conversationId+'/'+user.id+'/'+crypto.randomUUID()+'-'+safeName;
+  const uploaded=await client.storage.from('message-attachments').upload(path,file,{contentType:file.type,upsert:false});
+  if(uploaded.error){notify(uploaded.error.message);setBusy(false);return}
+  const message=await client.from('messages').insert({conversation_id:conversationId,sender_id:user.id,body:file.name.slice(0,500),message_type:kind}).select('id').single();
+  if(message.error){await client.storage.from('message-attachments').remove([path]);notify(message.error.message);setBusy(false);return}
+  const attachment=await client.from('message_attachments').insert({message_id:message.data.id,storage_path:path,file_name:file.name.slice(0,255),mime_type:file.type,size_bytes:file.size});
+  if(attachment.error){await client.from('messages').delete().eq('id',message.data.id);await client.storage.from('message-attachments').remove([path]);notify(attachment.error.message)}
+  else{await loadMessages(conversationId);await loadHome(user.id)}
+  setBusy(false);
+ };
+ const toggleVoiceRecording=async()=>{
+  if(recording){recorderRef.current?.stop();return}
+  if(!navigator.mediaDevices?.getUserMedia||typeof MediaRecorder==='undefined'){notify('Ton navigateur ne permet pas les messages vocaux.');return}
+  try{
+   const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+   const mime=MediaRecorder.isTypeSupported('audio/webm;codecs=opus')?'audio/webm;codecs=opus':MediaRecorder.isTypeSupported('audio/mp4')?'audio/mp4':undefined;
+   const recorder=new MediaRecorder(stream,mime?{mimeType:mime}:undefined);recorderChunks.current=[];
+   recorder.ondataavailable=e=>{if(e.data.size)recorderChunks.current.push(e.data)};
+   recorder.onstop=()=>{stream.getTracks().forEach(track=>track.stop());setRecording(false);const type=recorder.mimeType||'audio/webm';const ext=type.includes('mp4')?'m4a':type.includes('ogg')?'ogg':'webm';const blob=new Blob(recorderChunks.current,{type});void uploadChatFile(new File([blob],'vocal-'+Date.now()+'.'+ext,{type}),'voice')};
+   recorderRef.current=recorder;recorder.start();setRecording(true);
+  }catch(error){notify(error instanceof Error?error.message:'Impossible d’accéder au microphone.')}
+ };
  const searchPeople=async(term:string)=>{
   setSearchTerm(term);if(!client||term.trim().length<2){setSearchResults([]);return}
   const {data,error}=await client.from('profiles').select('id,username,display_name,avatar_url,bio').ilike('username','%'+term.trim().replace(/[%_]/g,'')+'%').neq('id',user?.id??'').limit(12);
@@ -174,9 +220,9 @@ export default function App(){
  const deleteStory=async()=>{
   const story=stories[storyIndex];if(!client||!user||!story||story.user_id!==user.id)return;
   setBusy(true);const file=await client.storage.from('stories').remove([story.storage_path]);
+  if(file.error){notify(file.error.message);setBusy(false);return}
   const row=await client.from('stories').delete().eq('id',story.id);
-  if(file.error||row.error)notify(file.error?.message??row.error?.message??'Suppression impossible.');
-  else{await loadHome(user.id);setScreen('messages');notify('Story supprimée.')}
+  if(row.error)notify(row.error.message);else{await loadHome(user.id);setScreen('messages');notify('Story supprimée.')}
   setBusy(false);
  };
  const saveProfile=async(e:FormEvent)=>{
@@ -217,8 +263,8 @@ export default function App(){
    {chats.length===0?<div className="empty-state"><MessageCircle size={34}/><strong>Aucune conversation</strong><span>Recherche un membre SAFARY pour commencer à discuter.</span><button className="gradient-button" onClick={()=>setSearchOpen(true)}>Trouver des membres</button></div>:<div className="conversation-list">{chats.map(c=><button className="conversation" key={c.id} onClick={()=>void openChat(c)}><Avatar profile={c.user}/><span className="conversation-copy"><span className="conversation-top"><strong>{c.user.username}</strong><time>{c.lastAt?timeLabel(c.lastAt):''}</time></span><span className="preview">{c.lastMessage}</span></span></button>)}</div>}</section>
    <nav className="bottom-nav"><button className="active" onClick={()=>setScreen('messages')}><MessageCircle/><span>Messages</span></button><button onClick={()=>setScreen('create-story')}><Plus/><span>Créer Story</span></button><button onClick={()=>setScreen('profile')}><UserRound/><span>Profil</span></button></nav></>}
   {screen==='chat'&&<div className="chat-screen"><header className="chat-header"><button onClick={()=>{setScreen('messages');setConversationId('')}} aria-label="Retour"><ArrowLeft/></button><Avatar profile={contact}/><div><strong>{contact?.username??'Discussion'}</strong><span>{contact?.display_name??''}</span></div><button className="push-right" aria-label="Profil" onClick={()=>setScreen('profile')}><InfoIcon/></button></header>
-   <div className="chat-messages">{messages.length===0&&<p className="empty-chat">Démarre la conversation 👋</p>}{messages.map(m=><div className={'bubble '+(m.sender_id===user.id?'outgoing':'incoming')} key={m.id}><span>{m.body}</span><time>{timeLabel(m.created_at)}</time></div>)}</div>
-   <form className="composer" onSubmit={sendMessage}><input value={draft} onChange={e=>setDraft(e.target.value)} placeholder="Écrire un message…" maxLength={10000}/><button className="send-button" type="submit" aria-label="Envoyer" disabled={!draft.trim()}><Send/></button></form></div>}
+   <div className="chat-messages">{messages.length===0&&<p className="empty-chat">Démarre la conversation 👋</p>}{messages.map(m=><div className={'bubble '+(m.sender_id===user.id?'outgoing':'incoming')} key={m.id}>{m.message_type==='text'&&<span>{m.body}</span>}{m.attachments?.map(a=><div className="attachment-preview" key={a.id}>{a.mime_type.startsWith('image/')?<img src={a.url} alt={a.file_name}/>:a.mime_type.startsWith('audio/')?<audio controls src={a.url}/>:<a href={a.url} download={a.file_name}>{a.file_name}</a>}</div>)}<time>{timeLabel(m.created_at)}</time></div>)}</div>
+   <form className="composer" onSubmit={sendMessage}><button type="button" aria-label="Joindre un fichier" onClick={()=>fileInputRef.current?.click()}><Plus/></button><input ref={fileInputRef} type="file" accept={CHAT_FILE_TYPES.join(',')} hidden onChange={e=>{const file=e.target.files?.[0];if(file)void uploadChatFile(file,file.type.startsWith('image/')?'image':'file');e.currentTarget.value=''}}/><input value={draft} onChange={e=>setDraft(e.target.value)} placeholder="Écrire un message…" maxLength={10000}/><button type="button" aria-label={recording?'Arrêter le vocal':'Enregistrer un vocal'} onClick={()=>void toggleVoiceRecording()}>{recording?<Square/>:<Mic/>}</button><button className="send-button" type="submit" aria-label="Envoyer" disabled={!draft.trim()||busy}><Send/></button></form></div>}
   {screen==='create-story'&&<SubScreen title="Créer une Story" onBack={()=>setScreen('messages')}><div className="editor-card"><ImagePlus size={42}/><strong>Ajoute une photo ou une vidéo</strong><span>Ta story sera visible pendant 48 heures.</span><label className="gradient-button"><Camera size={18}/> Choisir un média<input type="file" accept={MIME_TYPES.join(',')} hidden onChange={e=>setStoryFile(e.target.files?.[0]??null)}/></label>{storyFile&&<span className="file-name">{storyFile.name}</span>}<input className="story-caption" placeholder="Ajouter une légende…" value={storyCaption} onChange={e=>setStoryCaption(e.target.value)} maxLength={300}/><button className="gradient-button" disabled={!storyFile||busy} onClick={()=>void publishStory()}>{busy?'Publication…':'Publier la Story'}</button></div></SubScreen>}
   {screen==='story-viewer'&&activeStory&&<div className="story-viewer"><header><button onClick={()=>setScreen('messages')}><X/></button><Avatar profile={activeStory.profile} size="small"/><strong>{activeStory.profile.username}</strong><time>{timeLabel(activeStory.created_at)}</time>{activeStory.user_id===user.id&&<button className="push-right" onClick={()=>void deleteStory()} aria-label="Supprimer"><Trash2/></button>}</header>{activeStory.media_type==='video'?<video src={activeStory.url} controls autoPlay playsInline/>:<img src={activeStory.url} alt={activeStory.caption||'Story SAFARY'}/>}<p>{activeStory.caption}</p><footer><button onClick={()=>setStoryIndex(i=>Math.max(0,i-1))} disabled={storyIndex===0}>Précédente</button><button onClick={()=>setStoryIndex(i=>Math.min(stories.length-1,i+1))} disabled={storyIndex>=stories.length-1}>Suivante</button></footer></div>}
   {screen==='story-viewer'&&!activeStory&&<SubScreen title="Story" onBack={()=>setScreen('messages')}><div className="empty-state">Aucune story disponible.</div></SubScreen>}
