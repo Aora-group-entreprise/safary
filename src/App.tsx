@@ -186,7 +186,10 @@ export default function App(){
  const searchPeople=async(term:string)=>{
   setSearchTerm(term);if(!client||term.trim().length<2){setSearchResults([]);return}
   const {data,error}=await client.from('profiles').select('id,username,display_name,avatar_url,bio').ilike('username','%'+term.trim().replace(/[%_]/g,'')+'%').neq('id',user?.id??'').limit(12);
-  if(error)notify(error.message);else setSearchResults((data??[]) as Profile[]);
+  if(error)notify(error.message);else{
+   const resolved=await Promise.all((data??[]).map(async(p:any)=>{if(p.avatar_url&&!p.avatar_url.startsWith('http')){const signed=await client.storage.from('profile-media').createSignedUrl(p.avatar_url,3600);return {...p,avatar_url:signed.data?.signedUrl??null} as Profile}return p as Profile}));
+   setSearchResults(resolved);
+  }
  };
  const startConversation=async(person:Profile)=>{
   if(!client||!user)return;setBusy(true);
