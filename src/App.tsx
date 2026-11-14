@@ -169,7 +169,7 @@ export default function App(){
 
  const viewStory=async(index:number)=>{
   const story=stories[index];if(!story)return;setStoryIndex(index);setScreen('story-viewer');
-  if(client&&user&&story.user_id!==user.id)await client.from('story_views').upsert({story_id:story.id,viewer_id:user.id},{onConflict:'story_id,viewer_id'});
+  if(client&&user&&story.user_id!==user.id)await client.from('story_views').upsert({story_id:story.id,viewer_id:user.id},{onConflict:'story_id,viewer_id',ignoreDuplicates:true});
  };
  const deleteStory=async()=>{
   const story=stories[storyIndex];if(!client||!user||!story||story.user_id!==user.id)return;
