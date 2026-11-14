@@ -107,7 +107,7 @@ export default function App(){
   const restore=async()=>{
    const token=localStorage.getItem('safary_session');
    if(!token){if(alive){setLoading(false);setScreen('auth')}return}
-   const {data,error}=await client.functions.invoke('safary-auth',{body:{action:'me'},headers:{'x-safary-session':token}});
+   const {data,error}=await client.functions.invoke('safary-auth',{body:{action:'me'}});
    if(!alive)return;
    if(error||!data?.account){localStorage.removeItem('safary_session');setSession(null);setUser(null);setScreen('auth')}
    else{setSession({access_token:token});setUser({id:data.account.id});setProfile(data.account);setDisplayName(data.account.display_name??'');setUsername(data.account.username??'');setBio(data.account.bio??'');setAvatarUrl(data.account.avatar_url??'')}
@@ -268,7 +268,7 @@ export default function App(){
   const {error}=await client.from('user_settings').update({...next,updated_at:new Date().toISOString()}).eq('user_id',user.id);
   if(error){setSettings(settings);notify(error.message)}
  };
- const signOut=async()=>{if(client){const token=localStorage.getItem('safary_session');const {error}=await client.functions.invoke('safary-auth',{body:{action:'logout'},headers:token?{'x-safary-session':token}:{}});if(error)notify(error.message);localStorage.removeItem('safary_session');setScreen('auth');setSession(null);setUser(null);setProfile(null);setChats([]);setStories([]);setMessages([])}};
+ const signOut=async()=>{if(client){const token=localStorage.getItem('safary_session');const {error}=await client.functions.invoke('safary-auth',{body:{action:'logout'}});if(error)notify(error.message);localStorage.removeItem('safary_session');setScreen('auth');setSession(null);setUser(null);setProfile(null);setChats([]);setStories([]);setMessages([])}};
 
  const groupedStories=useMemo(()=>{const map=new Map<string,Story[]>();for(const s of stories){const list=map.get(s.user_id)??[];list.push(s);map.set(s.user_id,list)}return [...map.values()].map(items=>items[0])},[stories]);
  const activeStory=stories[storyIndex];
