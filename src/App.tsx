@@ -36,6 +36,8 @@ export default function App(){
  const [storyPreview,setStoryPreview]=useState('');
  const [messages,setMessages]=useState<Message[]>([]);
  const [conversationId,setConversationId]=useState('');
+ const [realtimeConnected,setRealtimeConnected]=useState(false);
+ const chatSocket=useRef<WebSocket|null>(null);
  const [contact,setContact]=useState<Profile|null>(null);
  const [storyIndex,setStoryIndex]=useState(0);
  const [draft,setDraft]=useState('');
@@ -170,18 +172,39 @@ export default function App(){
  },[loadMessages]);
 
  useEffect(()=>{
-  if(!client||!conversationId||screen!=='chat')return;
-  let running=false;const refresh=async()=>{if(running||document.visibilityState!=='visible')return;running=true;try{await loadMessages(conversationId)}finally{running=false}};
-  const timer=window.setInterval(()=>void refresh(),20000);
-  const onVisible=()=>{if(document.visibilityState==='visible')void refresh()};document.addEventListener('visibilitychange',onVisible);window.addEventListener('online',onVisible);
-  return()=>{window.clearInterval(timer);document.removeEventListener('visibilitychange',onVisible);window.removeEventListener('online',onVisible)};
- },[client,conversationId,screen,user,loadHome,loadMessages]);
+  if(!client||!conversationId||screen!=='chat'||!user){setRealtimeConnected(false);return}
+  let stopped=false;let retryTimer=0;let retryDelay=1000;let fallbackTimer=0;let running=false;
+  const connect=()=>{
+   if(stopped||document.visibilityState!=='visible'||!navigator.onLine)return;
+   const token=localStorage.getItem('safary_session');if(!token)return;
+   const scheme=window.location.protocol==='https:'?'wss:':'ws:';
+   const socket=new WebSocket(scheme+'//'+window.location.host+'/realtime/chat/'+conversationId,['safary.v1','session.'+token]);
+   chatSocket.current=socket;
+   socket.onopen=()=>{if(stopped){socket.close();return}retryDelay=1000;setRealtimeConnected(true);void loadMessages(conversationId)};
+   socket.onmessage=event=>{try{const payload=JSON.parse(String(event.data));if(payload.type==='sync'&&payload.conversationId===conversationId&&payload.actorId!==user.id&&!running){running=true;void loadMessages(conversationId).finally(()=>{running=false})}}catch{}};
+   socket.onerror=()=>socket.close();
+   socket.onclose=()=>{if(chatSocket.current===socket)chatSocket.current=null;setRealtimeConnected(false);if(!stopped){retryTimer=window.setTimeout(connect,retryDelay);retryDelay=Math.min(retryDelay*2,30000)}};
+  };
+  connect();
+  const onVisible=()=>{if(document.visibilityState==='visible'){if(!chatSocket.current||chatSocket.current.readyState>1)connect();else if(chatSocket.current.readyState===1)void loadMessages(conversationId)}};
+  document.addEventListener('visibilitychange',onVisible);window.addEventListener('online',onVisible);
+  return()=>{stopped=true;window.clearTimeout(retryTimer);window.clearInterval(fallbackTimer);document.removeEventListener('visibilitychange',onVisible);window.removeEventListener('online',onVisible);const socket=chatSocket.current;chatSocket.current=null;if(socket){socket.onclose=null;socket.close()}setRealtimeConnected(false)};
+ },[client,conversationId,screen,user,loadMessages]);
+
+ useEffect(()=>{
+  if(!client||!conversationId||screen!=='chat'||realtimeConnected)return;
+  let running=false;const refresh=async()=>{if(running||document.visibilityState!=='visible'||!navigator.onLine)return;running=true;try{await loadMessages(conversationId)}finally{running=false}};
+  const timer=window.setInterval(()=>void refresh(),60000);
+  return()=>window.clearInterval(timer);
+ },[client,conversationId,screen,realtimeConnected,loadMessages]);
+
+ const broadcastChatSync=()=>{const socket=chatSocket.current;if(socket?.readyState===WebSocket.OPEN)socket.send(JSON.stringify({type:'sync'}))};
 
  const sendMessage=async(e:FormEvent)=>{
   e.preventDefault();if(chatFile){await uploadChatFile(chatFile,chatFile.type.startsWith('image/')?'image':'file');setChatFile(null);setChatFilePreview('');return}const body=draft.trim();if(!client||!user||!conversationId||!body)return;
   setDraft('');const {data,error}=await client.from('messages').insert({conversation_id:conversationId,sender_id:user.id,body,message_type:'text'}).select('id,conversation_id,sender_id,body,message_type,created_at').single();
   if(error){setDraft(body);notify(error.message);return}
-  setMessages(prev=>{const next=prev.some(m=>m.id===data.id)?prev:[...prev,data as Message];writeCache('messages:'+conversationId,next.map(({attachments,...m})=>m));return next});
+  setMessages(prev=>{const next=prev.some(m=>m.id===data.id)?prev:[...prev,data as Message];writeCache('messages:'+conversationId,next.map(({attachments,...m})=>m));return next});broadcastChatSync();
  };
 
  const uploadChatFile=async(file:File,kind:'image'|'file'|'voice'='file')=>{
@@ -196,7 +219,7 @@ export default function App(){
   if(message.error){await client.storage.from('message-attachments').remove([path]);notify(message.error.message);setBusy(false);return false}
   const attachment=await client.from('message_attachments').insert({message_id:message.data.id,storage_path:path,file_name:file.name.slice(0,255),mime_type:file.type,size_bytes:file.size});
   if(attachment.error){await client.from('messages').delete().eq('id',message.data.id);await client.storage.from('message-attachments').remove([path]);notify(attachment.error.message);setBusy(false);return false}
-  else{await loadMessages(conversationId);await loadHome(user.id)}
+  else{await loadMessages(conversationId);broadcastChatSync();await loadHome(user.id)}
   setBusy(false);return true;
  };
  const formatVoiceTime=(seconds:number)=>String(Math.floor(seconds/60)).padStart(2,'0')+':'+String(seconds%60).padStart(2,'0');
@@ -307,8 +330,8 @@ export default function App(){
  const showStory=(story:Story)=>{const index=stories.findIndex(item=>item.id===story.id);if(index>=0){setStoryIndex(index);setScreen('story-viewer')}};
   const clearLongPress=()=>{if(longPressTimer.current!==null){window.clearTimeout(longPressTimer.current);longPressTimer.current=null}};
   const beginMessagePress=(message:Message)=>{clearLongPress();longPressTimer.current=window.setTimeout(()=>setActiveMessage(message),550)};
-  const reactToMessage=async(message:Message,emoji:string)=>{if(!client||!user)return;const existing=message.reactions?.find(r=>r.user_id===user.id);const result=existing?.reaction===emoji?await client.from('message_reactions').delete().eq('id',existing.id):await client.from('message_reactions').upsert({message_id:message.id,user_id:user.id,reaction:emoji},{onConflict:'message_id,user_id'});if(result.error)notify(result.error.message);else await loadMessages(conversationId);setActiveMessage(null)};
-  const deleteMessage=async(message:Message,scope:'me'|'everyone')=>{if(!client||!user)return;setBusy(true);try{if(scope==='me'){const {error}=await client.from('message_user_hides').upsert({message_id:message.id,user_id:user.id},{onConflict:'message_id,user_id'});if(error)throw error}else{if(message.sender_id!==user.id)throw new Error('Tu peux supprimer pour tout le monde uniquement un message que tu as envoyé.');const files=message.attachments??[];if(files.length){const removed=await client.storage.from('message-attachments').remove(files.map(f=>f.storage_path));if(removed.error)throw removed.error;const deletedFiles=await client.from('message_attachments').delete().eq('message_id',message.id);if(deletedFiles.error)throw deletedFiles.error}const deleted=await client.from('messages').delete().eq('id',message.id).eq('sender_id',user.id);if(deleted.error)throw deleted.error}await loadMessages(conversationId);await loadHome(user.id);notify(scope==='me'?'Message supprimé de ta conversation.':'Message supprimé pour tout le monde.')}catch(error){notify(error instanceof Error?error.message:'Suppression impossible.')}finally{setBusy(false);setActiveMessage(null)}};
+  const reactToMessage=async(message:Message,emoji:string)=>{if(!client||!user)return;const existing=message.reactions?.find(r=>r.user_id===user.id);const result=existing?.reaction===emoji?await client.from('message_reactions').delete().eq('id',existing.id):await client.from('message_reactions').upsert({message_id:message.id,user_id:user.id,reaction:emoji},{onConflict:'message_id,user_id'});if(result.error)notify(result.error.message);else{await loadMessages(conversationId);broadcastChatSync()}setActiveMessage(null)};
+  const deleteMessage=async(message:Message,scope:'me'|'everyone')=>{if(!client||!user)return;setBusy(true);try{if(scope==='me'){const {error}=await client.from('message_user_hides').upsert({message_id:message.id,user_id:user.id},{onConflict:'message_id,user_id'});if(error)throw error}else{if(message.sender_id!==user.id)throw new Error('Tu peux supprimer pour tout le monde uniquement un message que tu as envoyé.');const files=message.attachments??[];if(files.length){const removed=await client.storage.from('message-attachments').remove(files.map(f=>f.storage_path));if(removed.error)throw removed.error;const deletedFiles=await client.from('message_attachments').delete().eq('message_id',message.id);if(deletedFiles.error)throw deletedFiles.error}const deleted=await client.from('messages').delete().eq('id',message.id).eq('sender_id',user.id);if(deleted.error)throw deleted.error}await loadMessages(conversationId);broadcastChatSync();await loadHome(user.id);notify(scope==='me'?'Message supprimé de ta conversation.':'Message supprimé pour tout le monde.')}catch(error){notify(error instanceof Error?error.message:'Suppression impossible.')}finally{setBusy(false);setActiveMessage(null)}};
   const deleteStory=async()=>{
   const story=stories[storyIndex];if(!client||!user||!story||story.user_id!==user.id)return;
   setBusy(true);const file=await client.storage.from('stories').remove([story.storage_path]);
