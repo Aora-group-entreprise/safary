@@ -88,6 +88,7 @@ export class ChatRoom extends DurableObject<Env> {
     server.serializeAttachment({ userId, roomId, roomType, participants });
     if (roomType === "presence") {
       await this.ctx.storage.put("onlineAt", Date.now());
+      await this.ctx.storage.setAlarm(Date.now() + 70000);
       await this.broadcastPresence(userId, true, participants);
     }
     if (roomType === "inbox") {
@@ -102,7 +103,7 @@ export class ChatRoom extends DurableObject<Env> {
     if (!attachment || typeof message !== "string" || message.length > 2048) return;
     let payload: { type?: string };
     try { payload = JSON.parse(message); } catch { return; }
-    if (attachment.roomType === "presence" && payload.type === "heartbeat") { await this.ctx.storage.put("onlineAt", Date.now()); return; }
+    if (attachment.roomType === "presence" && payload.type === "heartbeat") { const now = Date.now(); await this.ctx.storage.put("onlineAt", now); await this.ctx.storage.setAlarm(now + 70000); return; }
     if (attachment.roomType === "presence" && payload.type === "activity") { const event = JSON.stringify({ type: "activity", actorId: attachment.userId, at: Date.now() }); await Promise.all(attachment.participants.map(async id => { const stub = this.env.CHAT_ROOMS.get(this.env.CHAT_ROOMS.idFromName("inbox:" + id)); await stub.notify(event); })); return; }
     if (attachment.roomType !== "chat" || payload.type !== "sync") return;
     const now = Date.now();
@@ -135,7 +136,19 @@ export class ChatRoom extends DurableObject<Env> {
     }
   }
 
-  async webSocketClose(ws: WebSocket) { const attachment = ws.deserializeAttachment() as { userId?: string; roomType?: string; participants?: string[] } | null; if (attachment?.roomType === "presence" && this.ctx.getWebSockets().filter(s => { const a = s.deserializeAttachment() as { roomType?: string } | null; return s !== ws && a?.roomType === "presence"; }).length === 0) { await this.ctx.storage.delete("onlineAt"); await this.broadcastPresence(attachment.userId ?? "", false, attachment.participants ?? []); } try { ws.close(1000, "closed"); } catch {} }
+  async alarm() {
+    const onlineAt = await this.ctx.storage.get<number>("onlineAt");
+    if (!onlineAt) return;
+    const remaining = 70000 - (Date.now() - onlineAt);
+    if (remaining > 0) { await this.ctx.storage.setAlarm(Date.now() + remaining); return; }
+    await this.ctx.storage.delete("onlineAt");
+    const sockets = this.ctx.getWebSockets().map(socket => socket.deserializeAttachment() as { userId?: string; roomType?: string; participants?: string[] } | null).filter(item => item?.roomType === "presence");
+    const userId = sockets[0]?.userId ?? "";
+    const participants = [...new Set(sockets.flatMap(item => item?.participants ?? []))];
+    if (userId) await this.broadcastPresence(userId, false, participants);
+  }
+
+  async webSocketClose(ws: WebSocket) { const attachment = ws.deserializeAttachment() as { userId?: string; roomType?: string; participants?: string[] } | null; if (attachment?.roomType === "presence" && this.ctx.getWebSockets().filter(s => { const a = s.deserializeAttachment() as { roomType?: string } | null; return s !== ws && a?.roomType === "presence"; }).length === 0) { await this.ctx.storage.delete("onlineAt"); await this.ctx.storage.deleteAlarm(); await this.broadcastPresence(attachment.userId ?? "", false, attachment.participants ?? []); } try { ws.close(1000, "closed"); } catch {} }
   async webSocketError(ws: WebSocket) { try { ws.close(1011, "socket error"); } catch {} }
 }
 
