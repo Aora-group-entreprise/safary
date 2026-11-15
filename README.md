@@ -25,13 +25,14 @@ Le Worker ne contient aucune clé `service_role`. Il transmet la clé publique e
 ## Déploiement Cloudflare
 
 1. Créer ou sélectionner un compte Cloudflare.
-2. Dans GitHub > Settings > Secrets and variables > Actions, ajouter :
-   - `CLOUDFLARE_API_TOKEN` — token avec les droits de déploiement Workers.
-   - `CLOUDFLARE_ACCOUNT_ID` — identifiant du compte Cloudflare.
-3. Vérifier que le dépôt utilise la branche `main`.
-4. Chaque push sur `main` lance le workflow `.github/workflows/cloudflare-deploy.yml`.
-5. Le workflow installe les dépendances, construit `dist/` puis exécute `wrangler deploy`.
-6. Dans Cloudflare, rattacher le domaine personnalisé au Worker `safary` après le premier déploiement.
+2. Créer un API Token Cloudflare avec le modèle **Edit Cloudflare Workers**, limité au compte qui hébergera SAFARY. La création du Worker peut demander les droits d'administration Workers sur le compte ; un déploiement ultérieur d'un Worker déjà créé requiert le rôle Editor. Pour rattacher un domaine personnalisé par API, ajouter aussi Workers Routes Write sur la zone concernée.
+3. Dans GitHub > Settings > Secrets and variables > Actions, ajouter :
+   - `CLOUDFLARE_API_TOKEN` — le token Cloudflare (ne jamais le mettre dans le code).
+   - `CLOUDFLARE_ACCOUNT_ID` — l'identifiant du compte Cloudflare.
+4. Vérifier que le dépôt utilise la branche `main`.
+5. Chaque push sur `main` lance le workflow `.github/workflows/cloudflare-deploy.yml`.
+6. Le workflow valide le build, installe les dépendances, construit `dist/` puis exécute `wrangler deploy`.
+7. Dans Cloudflare, rattacher le domaine personnalisé au Worker `safary` après le premier déploiement.
 
 Le projet Cloudflare est configuré dans `wrangler.jsonc`. L'URL Supabase non secrète y est déclarée dans `vars.SUPABASE_URL`. Aucun secret Supabase n'est requis par le proxy.
 
