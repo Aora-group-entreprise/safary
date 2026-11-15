@@ -37,7 +37,6 @@ export default function App(){
  const [displayName,setDisplayName]=useState('');
  const [username,setUsername]=useState('');
  const [bio,setBio]=useState('');
- const [avatarUrl,setAvatarUrl]=useState('');
  const [password,setPassword]=useState('');
  const [confirmPassword,setConfirmPassword]=useState('');
  const [age,setAge]=useState('');
@@ -65,7 +64,7 @@ export default function App(){
   if(!client)return;
   const {data,error}=await client.from('profiles').select('id,username,display_name,avatar_url,bio,cover_url').eq('id',uid).maybeSingle();
   if(error){notify(error.message);return}
-  if(data){let resolvedAvatar=data.avatar_url??'';let resolvedCover=data.cover_url??'';if(resolvedAvatar&&!resolvedAvatar.startsWith('http')){const signed=await client.storage.from('profile-media').createSignedUrl(resolvedAvatar,3600);resolvedAvatar=signed.data?.signedUrl??'';}if(resolvedCover&&!resolvedCover.startsWith('http')){const signed=await client.storage.from('profile-media').createSignedUrl(resolvedCover,3600);resolvedCover=signed.data?.signedUrl??'';}const p={...data,avatar_url:resolvedAvatar,cover_url:resolvedCover} as Profile;setProfile(p);setDisplayName(p.display_name??'');setUsername(p.username??'');setBio(p.bio??'');setAvatarUrl(data.avatar_url?.startsWith('http')?data.avatar_url:'')}
+  if(data){let resolvedAvatar=data.avatar_url??'';let resolvedCover=data.cover_url??'';if(resolvedAvatar&&!resolvedAvatar.startsWith('http')){const signed=await client.storage.from('profile-media').createSignedUrl(resolvedAvatar,3600);resolvedAvatar=signed.data?.signedUrl??'';}if(resolvedCover&&!resolvedCover.startsWith('http')){const signed=await client.storage.from('profile-media').createSignedUrl(resolvedCover,3600);resolvedCover=signed.data?.signedUrl??'';}const p={...data,avatar_url:resolvedAvatar,cover_url:resolvedCover} as Profile;setProfile(p);setDisplayName(p.display_name??'');setUsername(p.username??'');setBio(p.bio??'')}
   const pref=await client.from('user_settings').select('online_status_visible,notifications_enabled').eq('user_id',uid).maybeSingle();
   if(pref.data)setSettings(pref.data);
  },[client]);
@@ -112,7 +111,7 @@ export default function App(){
    const {data,error}=await client.functions.invoke('safary-auth',{body:{action:'me'}});
    if(!alive)return;
    if(error||!data?.account){localStorage.removeItem('safary_session');setSession(null);setUser(null);setScreen('auth')}
-   else{setSession({access_token:token});setUser({id:data.account.id});setProfile(data.account);setDisplayName(data.account.display_name??'');setUsername(data.account.username??'');setBio(data.account.bio??'');setAvatarUrl(data.account.avatar_url??'')}
+   else{setSession({access_token:token});setUser({id:data.account.id});setProfile(data.account);setDisplayName(data.account.display_name??'');setUsername(data.account.username??'');setBio(data.account.bio??'')}
    setLoading(false);
   };
   void restore();
@@ -265,7 +264,7 @@ export default function App(){
    if(error)throw new Error(data?.error??error.message);
    if(!data?.account)throw new Error('Le profil n’a pas pu être actualisé.');
    const saved=data.account as Profile;
-   setProfile(saved);setAvatarUrl('');setAvatarFile(null);setCoverFile(null);
+   setProfile(saved);setAvatarFile(null);setCoverFile(null);
    setProfileAvatarPreview('');setProfileCoverPreview('');
    notify('Profil mis à jour.');
   }catch(error){notify(error instanceof Error?error.message:'Impossible de mettre à jour le profil.')}
