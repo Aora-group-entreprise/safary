@@ -135,7 +135,7 @@ export class ChatRoom extends DurableObject<Env> {
     }
   }
 
-  async webSocketClose(ws: WebSocket) { const attachment = ws.deserializeAttachment() as { userId?: string; roomType?: string; participants?: string[] } | null; if (attachment?.roomType === "presence" && this.ctx.getWebSockets().filter(s => { const a = s.deserializeAttachment() as { roomType?: string } | null; return a?.roomType === "presence"; }).length === 0) { await this.ctx.storage.delete("onlineAt"); await this.broadcastPresence(attachment.userId ?? "", false, attachment.participants ?? []); } try { ws.close(1000, "closed"); } catch {} }
+  async webSocketClose(ws: WebSocket) { const attachment = ws.deserializeAttachment() as { userId?: string; roomType?: string; participants?: string[] } | null; if (attachment?.roomType === "presence" && this.ctx.getWebSockets().filter(s => { const a = s.deserializeAttachment() as { roomType?: string } | null; return s !== ws && a?.roomType === "presence"; }).length === 0) { await this.ctx.storage.delete("onlineAt"); await this.broadcastPresence(attachment.userId ?? "", false, attachment.participants ?? []); } try { ws.close(1000, "closed"); } catch {} }
   async webSocketError(ws: WebSocket) { try { ws.close(1011, "socket error"); } catch {} }
 }
 
