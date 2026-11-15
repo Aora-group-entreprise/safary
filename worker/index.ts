@@ -6,7 +6,7 @@ interface Env {
   CHAT_ROOMS: DurableObjectNamespace<ChatRoom>;
 }
 
-const UPSTREAM_PREFIXES = ["/rest/v1", "/storage/v1", "/functions/v1", "/realtime/v1", "/auth/v1", "/graphql/v1"];
+const UPSTREAM_PREFIXES = ["/rest/v1", "/storage/v1", "/functions/v1", "/auth/v1", "/graphql/v1"];
 
 function json(body: Record<string, unknown>, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: {
