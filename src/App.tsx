@@ -142,8 +142,8 @@ export default function App(){
 
  useEffect(()=>{
   if(!client||!user)return;
-  let active=true;
-  (async()=>{await loadProfile(user.id);await loadHome(user.id);if(active)setScreen('messages')})();
+  let active=true;setScreen('messages');
+  void Promise.all([loadProfile(user.id),loadHome(user.id)]).then(()=>{if(!active)return});
   return()=>{active=false};
  },[client,user,loadProfile,loadHome]);
 
