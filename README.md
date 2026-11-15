@@ -35,8 +35,9 @@ Le Worker ne contient aucune clé `service_role`. Les opérations privilégiées
 - Stories photo/vidéo de 48 heures, enregistrement des vues et liste des visiteurs pour le propriétaire
 - Présence en ligne avec heartbeat et expiration de présence après perte de connexion
 - Préférences de présence et notifications du navigateur lorsque l'application reste ouverte en arrière-plan
+- Suppression du compte avec confirmation, révocation des sessions et nettoyage des médias associés
 
-Les notifications du navigateur ne sont pas des notifications push garanties lorsque l'application est totalement fermée. Les notifications push en arrière-plan/fermée nécessitent un service push et des clés VAPID configurées.
+Les notifications du navigateur ne sont pas des notifications push garanties lorsque l'application est totalement fermée. Les notifications push en arrière-plan/fermée nécessitent un service push et des clés VAPID configurées. La récupération d'un mot de passe oublié nécessite aussi un moyen de vérification fiable (par exemple une adresse e-mail ou un numéro vérifié) qui n'est pas encore configuré.
 
 ## Déploiement Cloudflare
 
