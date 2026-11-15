@@ -96,7 +96,7 @@ export default function App(){
   if(error){notify(error.message);return}
   if(data){let resolvedAvatar=data.avatar_url??'';let resolvedCover=data.cover_url??'';if(resolvedAvatar&&!resolvedAvatar.startsWith('http')){const signed=await client.storage.from('profile-media').createSignedUrl(resolvedAvatar,46800);resolvedAvatar=signed.data?.signedUrl??'';}if(resolvedCover&&!resolvedCover.startsWith('http')){const signed=await client.storage.from('profile-media').createSignedUrl(resolvedCover,46800);resolvedCover=signed.data?.signedUrl??'';}const p={...data,avatar_url:resolvedAvatar,cover_url:resolvedCover} as Profile;setProfile(p);writeCache('profile:'+uid,p);setDisplayName(p.display_name??'');setUsername(p.username??'');setBio(p.bio??'')}
   const pref=await client.from('user_settings').select('online_status_visible,notifications_enabled').eq('user_id',uid).maybeSingle();
-  if(pref.data)setSettings(pref.data);
+  if(pref.data)setSettings({...pref.data,notifications_enabled:pref.data.notifications_enabled&&'Notification' in window&&Notification.permission==='granted'});
  },[client]);
 
  const loadHome=useCallback(async(uid:string)=>{
