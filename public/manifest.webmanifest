@@ -9,10 +9,10 @@
   "theme_color": "#08070a",
   "icons": [
     {
-      "src": "https://raw.githubusercontent.com/Aora-group-entreprise/safary/main/FB_IMG_17947533283908349.jpg",
+      "src": "/app-icon.svg",
       "sizes": "512x512",
-      "type": "image/jpeg",
-      "purpose": "any maskable"
+      "type": "image/svg+xml",
+      "purpose": "any"
     }
   ]
 }
