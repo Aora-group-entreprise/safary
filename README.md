@@ -50,7 +50,7 @@ Les notifications du navigateur ne sont pas des notifications push garanties lor
 5. Chaque push lance la validation et le workflow de déploiement.
 6. Le workflow construit `dist/` et exécute Wrangler.
 
-Le dernier échec de déploiement connu venait de la vérification des identifiants Cloudflare. Le succès du build ne prouve pas que le Worker a été déployé.
+La validation (TypeScript + build) s’exécute toujours. Le déploiement réel est lancé uniquement si les deux secrets Cloudflare sont présents. Sinon, le workflow se termine avec un avertissement et saute le déploiement : aucun Worker ne peut être déployé sans identifiants Cloudflare. Ne jamais committer ces secrets dans le dépôt.
 
 ## Développement local
 
@@ -77,3 +77,8 @@ La migration `0019_idempotent_direct_conversations.sql` fait en sorte qu'une nou
 ## Vérifications avant ouverture
 
 Le build ne remplace pas les tests fonctionnels. Tester avec deux comptes et deux appareils : inscription, reconnexion, édition de profil, recherche, création/réouverture de conversation, messages, pièces jointes, vocaux, réactions, confirmations « Vu », Stories, vues, suppression, présence après coupure réseau et paramètres. Vérifier les autorisations RLS et l'accès aux médias privés.
+
+
+## Attention — historique des migrations de production
+
+Le projet Supabase actif possède un historique de migrations horodaté dont les noms/versions ne correspondent pas exactement aux préfixes des fichiers SQL actuellement présents dans ce dépôt. La migration d’index `0021_message_metadata_user_indexes.sql` a été appliquée en production et est également versionnée ici. Ne pas lancer `supabase db push`, `db reset` ou une reconstruction de base avant d’avoir réconcilié l’historique complet (notamment les migrations historiques de bascule vers l’authentification SAFARY personnalisée) et testé sur une base de développement.
