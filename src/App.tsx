@@ -91,7 +91,7 @@ export default function App(){
 
  const loadHome=useCallback(async(uid:string)=>{
   if(!client)return;
-  const cachedHome=readCache<{chats:ChatRow[];stories:Story[]}>('home:'+uid,45*60*1000);if(cachedHome){setChats(cachedHome.chats);setStories(cachedHome.stories)}
+  const cachedHome=readCache<{chats:ChatRow[];stories:Story[]}>('home:'+uid,45*60*1000);if(cachedHome){setChats(cachedHome.chats);setStories(cachedHome.stories.filter(story=>new Date(story.expires_at).getTime()>Date.now()))}
   let nextChats:ChatRow[]=[];
   const own=await client.from('conversation_members').select('conversation_id').eq('user_id',uid);
   if(own.error){notify(own.error.message);return}
