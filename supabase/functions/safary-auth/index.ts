@@ -118,7 +118,14 @@ Deno.serve(async (req: Request) => {
         if (error.code === "23505") return json(409, { error: "Ce pseudo est déjà utilisé." });
         throw error;
       }
-      const session = await createSession(account.id, req);
+      let session;
+      try {
+        session = await createSession(account.id, req);
+      } catch (sessionError) {
+        await db.from("safary_accounts").delete().eq("id", account.id);
+        await db.storage.from("profile-media").remove([avatarPath, coverPath]);
+        throw sessionError;
+      }
       return json(201, { session, account: await signedAccount(account) });
     }
     if (action === "login") {
