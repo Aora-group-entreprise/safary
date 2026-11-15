@@ -103,6 +103,7 @@ export class ChatRoom extends DurableObject<Env> {
     let payload: { type?: string };
     try { payload = JSON.parse(message); } catch { return; }
     if (attachment.roomType === "presence" && payload.type === "heartbeat") { await this.ctx.storage.put("onlineAt", Date.now()); return; }
+    if (attachment.roomType === "presence" && payload.type === "activity") { const event = JSON.stringify({ type: "activity", actorId: attachment.userId, at: Date.now() }); await Promise.all(attachment.participants.map(async id => { const stub = this.env.CHAT_ROOMS.get(this.env.CHAT_ROOMS.idFromName("inbox:" + id)); await stub.notify(event); })); return; }
     if (attachment.roomType !== "chat" || payload.type !== "sync") return;
     const now = Date.now();
     if (attachment.lastSyncAt && now - attachment.lastSyncAt < 100) return;
