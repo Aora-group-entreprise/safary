@@ -40,18 +40,27 @@ jobs:
         with:
           node-version: 22
 
-      - name: Verify Cloudflare credentials
+      - name: Check Cloudflare credentials
+        id: credentials
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
         run: |
-          test -n "$CLOUDFLARE_API_TOKEN" || (echo "Missing GitHub secret: CLOUDFLARE_API_TOKEN" && exit 1)
-          test -n "$CLOUDFLARE_ACCOUNT_ID" || (echo "Missing GitHub secret: CLOUDFLARE_ACCOUNT_ID" && exit 1)
+          if [[ -n "$CLOUDFLARE_API_TOKEN" && -n "$CLOUDFLARE_ACCOUNT_ID" ]]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            echo "Cloudflare credentials are configured."
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Cloudflare deployment skipped: configure CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID in GitHub Actions secrets. Build validation has succeeded; a real Cloudflare deployment cannot run without credentials."
+          fi
 
       - name: Install dependencies
+        if: steps.credentials.outputs.available == 'true'
         run: npm install --no-audit --no-fund
 
       - name: Deploy Worker and static assets
+        if: steps.credentials.outputs.available == 'true'
         run: npm run deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
