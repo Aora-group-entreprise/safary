@@ -251,6 +251,7 @@ export default function App(){
  },[client,conversationId,screen,realtimeConnected,loadMessages]);
 
  const broadcastChatSync=()=>{const socket=chatSocket.current;if(socket?.readyState===WebSocket.OPEN)socket.send(JSON.stringify({type:'sync'}))};
+ const broadcastAppUpdate=()=>{const socket=presenceSocket.current;if(socket?.readyState===WebSocket.OPEN)socket.send(JSON.stringify({type:'activity'}))};
 
  const sendMessage=async(e:FormEvent)=>{
   e.preventDefault();if(chatFile){await uploadChatFile(chatFile,chatFile.type.startsWith('image/')?'image':'file');setChatFile(null);setChatFilePreview('');return}const body=draft.trim();if(!client||!user||!conversationId||!body)return;
@@ -365,7 +366,7 @@ export default function App(){
   const upload=await client.storage.from('stories').upload(path,storyFile,{contentType:storyFile.type,upsert:false});
   if(upload.error){notify(upload.error.message);setBusy(false);return}
   const result=await client.from('stories').insert({user_id:user.id,storage_path:path,media_type:storyFile.type.startsWith('video/')?'video':'image',caption:storyCaption.trim()});
-  if(result.error){await client.storage.from('stories').remove([path]);notify(result.error.message)}else{setStoryFile(null);setStoryPreview('');setStoryCaption('');await loadHome(user.id);setScreen('messages');notify('Story publiée. Elle disparaîtra après 48 heures.')}
+  if(result.error){await client.storage.from('stories').remove([path]);notify(result.error.message)}else{setStoryFile(null);setStoryPreview('');setStoryCaption('');await loadHome(user.id);broadcastAppUpdate();setScreen('messages');notify('Story publiée. Elle disparaîtra après 48 heures.')}
   setBusy(false);
  };
 
@@ -389,7 +390,7 @@ export default function App(){
   setBusy(true);const file=await client.storage.from('stories').remove([story.storage_path]);
   if(file.error){notify(file.error.message);setBusy(false);return}
   const row=await client.from('stories').delete().eq('id',story.id);
-  if(row.error)notify(row.error.message);else{await loadHome(user.id);setScreen('messages');notify('Story supprimée.')}
+  if(row.error)notify(row.error.message);else{await loadHome(user.id);broadcastAppUpdate();setScreen('messages');notify('Story supprimée.')}
   setBusy(false);
  };
  const saveProfile=async(e:FormEvent)=>{
@@ -404,7 +405,7 @@ export default function App(){
    if(error)throw new Error(data?.error??error.message);
    if(!data?.account)throw new Error('Le profil n’a pas pu être actualisé.');
    const saved=data.account as Profile;
-   setProfile(saved);setAvatarFile(null);setCoverFile(null);
+   setProfile(saved);writeCache('profile:'+user.id,saved);setAvatarFile(null);setCoverFile(null);broadcastAppUpdate();
    setProfileAvatarPreview('');setProfileCoverPreview('');
    notify('Profil mis à jour.');
   }catch(error){notify(error instanceof Error?error.message:'Impossible de mettre à jour le profil.')}
@@ -413,7 +414,7 @@ export default function App(){
  const updateSetting=async(key:'online_status_visible'|'notifications_enabled',value:boolean)=>{
   if(!client||!user)return;const next={...settings,[key]:value};setSettings(next);
   const {error}=await client.from('user_settings').update({...next,updated_at:new Date().toISOString()}).eq('user_id',user.id);
-  if(error){setSettings(settings);notify(error.message)}else if(key==='online_status_visible'&&!value){setPresence({});notify('Ton statut en ligne est masqué.')}else if(key==='online_status_visible'&&value){notify('Ton statut en ligne est activé.')} 
+  if(error){setSettings(settings);notify(error.message)}else{broadcastAppUpdate()}if(!error&&key==='online_status_visible'&&!value){setPresence({});notify('Ton statut en ligne est masqué.')}else if(key==='online_status_visible'&&value){notify('Ton statut en ligne est activé.')} 
  };
  const signOut=async()=>{if(client){const currentUserId=user?.id;const {error}=await client.functions.invoke('safary-auth',{body:{action:'logout'}});if(error)notify(error.message);localStorage.removeItem('safary_session');Object.keys(localStorage).filter(k=>k.startsWith(CACHE_PREFIX)).forEach(k=>localStorage.removeItem(k));if(currentUserId&&'caches' in window)await caches.delete('safary-media-v1-'+currentUserId);setScreen('auth');setSession(null);setUser(null);setProfile(null);setChats([]);setStories([]);setMessages([])}};
 
