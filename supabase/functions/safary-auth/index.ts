@@ -135,11 +135,11 @@ Deno.serve(async (req: Request) => {
       const since = new Date(Date.now() - 15 * 60 * 1000).toISOString();
       const ip = req.headers.get("cf-connecting-ip") ?? "";
       const ipHash = ip ? await digest(ip) : null;
-      const { count: usernameFailures, error: usernameRateError } = await db.from("safary_login_attempts").select("id", { count: "exact, head: true }).eq("username_normalized", username).gte("attempted_at", since).eq("succeeded", false);
+      const { count: usernameFailures, error: usernameRateError } = await db.from("safary_login_attempts").select("id", { count: "exact", head: true }).eq("username_normalized", username).gte("attempted_at", since).eq("succeeded", false);
       if (usernameRateError) throw usernameRateError;
       const { count: ipFailures, error: ipRateError } = ipHash
         ? await db.from("safary_login_attempts").select("id", { count: "exact", head: true }).eq("ip_hash", ipHash).gte("attempted_at", since).eq("succeeded", false)
-        : { count: 0 };
+        : { count: 0, error: null };
       if (ipRateError) throw ipRateError;
       if ((usernameFailures ?? 0) >= 8 || (ipFailures ?? 0) >= 30) return json(429, { error: "Trop de tentatives. Réessaie dans 15 minutes." });
       const { data: account } = await db.from("safary_accounts").select("id,username,display_name,age,bio,password_hash,password_salt,avatar_path,cover_path").eq("username_normalized", username).maybeSingle();
