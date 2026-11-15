@@ -57,7 +57,7 @@ async function signedAccount(account: Record<string, any>) {
 async function authenticate(req: Request) {
   const clientInfo = req.headers.get("x-client-info") ?? "";
   const token = clientInfo.startsWith("safary-session:") ? clientInfo.slice("safary-session:".length) : null;
-  if (!token || token.length < 40) return null;
+  if (!token || !/^[a-f0-9]{64}$/i.test(token)) return null;
   const tokenHash = await digest(token);
   const { data, error } = await db.from("safary_sessions").select("id,account_id,expires_at,revoked_at").eq("token_hash", tokenHash).maybeSingle();
   if (error || !data || data.revoked_at || new Date(data.expires_at).getTime() <= Date.now()) return null;
@@ -131,19 +131,22 @@ Deno.serve(async (req: Request) => {
     if (action === "login") {
       const username = String(body.username ?? "").trim().toLowerCase();
       const password = String(body.password ?? "");
-      if (!/^[a-z0-9_.]{3,30}$/.test(username) || !password) return json(400, { error: "Pseudo ou mot de passe incorrect." });
+      if (!/^[a-z0-9_.]{3,30}$/.test(username) || password.length < 10 || password.length > 128) return json(400, { error: "Pseudo ou mot de passe incorrect." });
       const since = new Date(Date.now() - 15 * 60 * 1000).toISOString();
       const ip = req.headers.get("cf-connecting-ip") ?? "";
       const ipHash = ip ? await digest(ip) : null;
-      const { count: usernameFailures } = await db.from("safary_login_attempts").select("id", { count: "exact", head: true }).eq("username_normalized", username).gte("attempted_at", since).eq("succeeded", false);
-      const { count: ipFailures } = ipHash
+      const { count: usernameFailures, error: usernameRateError } = await db.from("safary_login_attempts").select("id", { count: "exact, head: true }).eq("username_normalized", username).gte("attempted_at", since).eq("succeeded", false);
+      if (usernameRateError) throw usernameRateError;
+      const { count: ipFailures, error: ipRateError } = ipHash
         ? await db.from("safary_login_attempts").select("id", { count: "exact", head: true }).eq("ip_hash", ipHash).gte("attempted_at", since).eq("succeeded", false)
         : { count: 0 };
+      if (ipRateError) throw ipRateError;
       if ((usernameFailures ?? 0) >= 8 || (ipFailures ?? 0) >= 30) return json(429, { error: "Trop de tentatives. Réessaie dans 15 minutes." });
       const { data: account } = await db.from("safary_accounts").select("id,username,display_name,age,bio,password_hash,password_salt,avatar_path,cover_path").eq("username_normalized", username).maybeSingle();
       const computed = account ? await passwordHash(password, account.password_salt) : await passwordHash(password, "safary-fixed-dummy-salt");
       const ok = Boolean(account && safeEqual(computed, account.password_hash));
-      await db.from("safary_login_attempts").insert({ username_normalized: username, succeeded: ok, ip_hash: ipHash });
+      const { error: attemptError } = await db.from("safary_login_attempts").insert({ username_normalized: username, succeeded: ok, ip_hash: ipHash });
+      if (attemptError) throw attemptError;
       if (!ok || !account) return json(401, { error: "Pseudo ou mot de passe incorrect." });
       const session = await createSession(account.id, req);
       const { password_hash: _hash, password_salt: _salt, ...safe } = account;
