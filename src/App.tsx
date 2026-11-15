@@ -43,6 +43,8 @@ export default function App(){
  const [age,setAge]=useState('');
  const [avatarFile,setAvatarFile]=useState<File|null>(null);
  const [coverFile,setCoverFile]=useState<File|null>(null);
+ const [profileAvatarPreview,setProfileAvatarPreview]=useState('');
+ const [profileCoverPreview,setProfileCoverPreview]=useState('');
  const [authMode,setAuthMode]=useState<'login'|'signup'>('login');
  const [searchOpen,setSearchOpen]=useState(false);
  const [searchTerm,setSearchTerm]=useState('');
@@ -254,14 +256,20 @@ export default function App(){
  const saveProfile=async(e:FormEvent)=>{
   e.preventDefault();if(!client||!user)return;
   if(!/^[a-z0-9_.]{3,30}$/i.test(username.trim())){notify('Le nom utilisateur doit contenir 3 à 30 caractères (lettres, chiffres, _ ou .).');return}
+  if(avatarFile&&(!['image/jpeg','image/png','image/webp'].includes(avatarFile.type)||avatarFile.size>1536*1024)){notify('La photo de profil doit être JPG, PNG ou WebP et faire moins de 1,5 Mo.');return}
+  if(coverFile&&(!['image/jpeg','image/png','image/webp'].includes(coverFile.type)||coverFile.size>1536*1024)){notify('La photo de couverture doit être JPG, PNG ou WebP et faire moins de 1,5 Mo.');return}
   setBusy(true);
-  const {error}=await client.functions.invoke('safary-auth',{body:{action:'profile-update',username:username.trim().toLowerCase(),displayName:displayName.trim(),bio}});
-  if(error){notify(error.message);setBusy(false);return}
-  const profileUpdate=avatarUrl.trim().startsWith('http')
-   ? await client.from('profiles').update({avatar_url:avatarUrl.trim()}).eq('id',user.id).select('id,username,display_name,avatar_url,bio').single()
-   : await client.from('profiles').select('id,username,display_name,avatar_url,bio').eq('id',user.id).single();
-  if(profileUpdate.error)notify(profileUpdate.error.message);else{const saved=profileUpdate.data as Profile;let resolved=saved.avatar_url;if(resolved&&!resolved.startsWith('http')){const signed=await client.storage.from('profile-media').createSignedUrl(resolved,3600);resolved=signed.data?.signedUrl??null}setProfile({...saved,avatar_url:resolved});notify('Profil mis à jour.')}
-  setBusy(false);
+  try{
+   const [avatarDataUrl,coverDataUrl]=await Promise.all([avatarFile?fileToDataUrl(avatarFile):Promise.resolve(undefined),coverFile?fileToDataUrl(coverFile):Promise.resolve(undefined)]);
+   const {data,error}=await client.functions.invoke('safary-auth',{body:{action:'profile-update',username:username.trim().toLowerCase(),displayName:displayName.trim(),bio,avatarDataUrl,coverDataUrl}});
+   if(error)throw new Error(data?.error??error.message);
+   if(!data?.account)throw new Error('Le profil n’a pas pu être actualisé.');
+   const saved=data.account as Profile;
+   setProfile(saved);setAvatarUrl('');setAvatarFile(null);setCoverFile(null);
+   setProfileAvatarPreview('');setProfileCoverPreview('');
+   notify('Profil mis à jour.');
+  }catch(error){notify(error instanceof Error?error.message:'Impossible de mettre à jour le profil.')}
+  finally{setBusy(false)}
  };
  const updateSetting=async(key:'online_status_visible'|'notifications_enabled',value:boolean)=>{
   if(!client||!user)return;const next={...settings,[key]:value};setSettings(next);
@@ -303,7 +311,23 @@ export default function App(){
   {screen==='create-story'&&<SubScreen title="Créer une Story" onBack={()=>setScreen('messages')}><div className="editor-card"><ImagePlus size={42}/><strong>Ajoute une photo ou une vidéo</strong><span>Ta story sera visible pendant 48 heures.</span><label className="gradient-button"><Camera size={18}/> Choisir un média<input type="file" accept={MIME_TYPES.join(',')} hidden onChange={e=>setStoryFile(e.target.files?.[0]??null)}/></label>{storyFile&&<span className="file-name">{storyFile.name}</span>}<input className="story-caption" placeholder="Ajouter une légende…" value={storyCaption} onChange={e=>setStoryCaption(e.target.value)} maxLength={300}/><button className="gradient-button" disabled={!storyFile||busy} onClick={()=>void publishStory()}>{busy?'Publication…':'Publier la Story'}</button></div></SubScreen>}
   {screen==='story-viewer'&&activeStory&&<div className="story-viewer"><header><button onClick={()=>setScreen('messages')}><X/></button><Avatar profile={activeStory.profile} size="small"/><strong>{activeStory.profile.username}</strong><time>{timeLabel(activeStory.created_at)}</time>{activeStory.user_id===user.id&&<button className="push-right" onClick={()=>void deleteStory()} aria-label="Supprimer"><Trash2/></button>}</header>{activeStory.media_type==='video'?<video src={activeStory.url} controls autoPlay playsInline/>:<img src={activeStory.url} alt={activeStory.caption||'Story SAFARY'}/>}<p>{activeStory.caption}</p><footer><button onClick={()=>setStoryIndex(i=>Math.max(0,i-1))} disabled={storyIndex===0}>Précédente</button><button onClick={()=>setStoryIndex(i=>Math.min(stories.length-1,i+1))} disabled={storyIndex>=stories.length-1}>Suivante</button></footer></div>}
   {screen==='story-viewer'&&!activeStory&&<SubScreen title="Story" onBack={()=>setScreen('messages')}><div className="empty-state">Aucune story disponible.</div></SubScreen>}
-  {screen==='profile'&&<SubScreen title="Profil" onBack={()=>setScreen('messages')}><form className="profile-form" onSubmit={saveProfile}>{profile?.cover_url&&<div aria-label="Photo de couverture" style={{height:120,width:"100%",borderRadius:16,backgroundImage:`url(${profile.cover_url})`,backgroundSize:"cover",backgroundPosition:"center"}}/>}<Avatar profile={{...profile,avatar_url:avatarUrl||profile?.avatar_url||null,display_name:displayName}} size="large"/><label>URL de la photo de profil<input type="url" value={avatarUrl} onChange={e=>setAvatarUrl(e.target.value)} placeholder="https://…"/></label><label>Nom affiché<input value={displayName} onChange={e=>setDisplayName(e.target.value)} maxLength={60}/></label><label>Nom utilisateur<input value={username} onChange={e=>setUsername(e.target.value)} minLength={3} maxLength={30}/></label><label>Biographie<textarea value={bio} onChange={e=>setBio(e.target.value)} maxLength={160} rows={3}/></label><button className="gradient-button full-width" disabled={busy}>Enregistrer le profil</button><button type="button" className="outline-button" onClick={()=>setScreen('settings')}><Settings size={17}/> Paramètres</button></form></SubScreen>}
+  {screen==='profile'&&<SubScreen title="Mon profil" onBack={()=>setScreen('messages')}><form className="profile-form profile-editor" onSubmit={saveProfile}>
+   <div className="profile-cover-editor" style={{backgroundImage:`url("${profileCoverPreview||profile?.cover_url||''}")`}}>
+    {!(profileCoverPreview||profile?.cover_url)&&<span>Ta photo de couverture</span>}
+    <label className="cover-edit-button"><Camera size={16}/> Modifier la couverture<input type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={async e=>{const file=e.target.files?.[0];if(file){setCoverFile(file);setProfileCoverPreview(await fileToDataUrl(file))}}}/></label>
+   </div>
+   <div className="profile-identity-editor">
+    <div className="profile-avatar-wrap"><Avatar profile={{...profile,avatar_url:profileAvatarPreview||profile?.avatar_url||null,display_name:displayName}} size="large"/><label className="avatar-edit-button"><Camera size={15}/><input type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={async e=>{const file=e.target.files?.[0];if(file){setAvatarFile(file);setProfileAvatarPreview(await fileToDataUrl(file))}}}/></label></div>
+    <div className="profile-identity-copy"><strong>{displayName||username||'Ton profil'}</strong><span>@{username||'utilisateur'}</span></div>
+   </div>
+   <div className="profile-fields">
+    <label>Nom affiché<input value={displayName} onChange={e=>setDisplayName(e.target.value)} maxLength={60} placeholder="Ton nom"/></label>
+    <label>Nom utilisateur<input value={username} onChange={e=>setUsername(e.target.value)} minLength={3} maxLength={30} placeholder="pseudo"/></label>
+    <label>Biographie<textarea value={bio} onChange={e=>setBio(e.target.value)} maxLength={160} rows={3} placeholder="Présente-toi en quelques mots…"/></label>
+   </div>
+   <button className="gradient-button full-width profile-save-button" disabled={busy}>{busy?'Enregistrement…':'Enregistrer les modifications'}</button>
+   <button type="button" className="outline-button" onClick={()=>setScreen('settings')}><Settings size={17}/> Paramètres</button>
+  </form></SubScreen>}
   {screen==='settings'&&<SubScreen title="Paramètres" onBack={()=>setScreen('profile')}><div className="settings-list"><div className="settings-row"><span><strong>Statut en ligne</strong><small>Afficher ta présence aux autres.</small></span><input type="checkbox" checked={settings.online_status_visible} onChange={e=>void updateSetting('online_status_visible',e.target.checked)}/></div><div className="settings-row"><span><strong>Notifications</strong><small>Autoriser les notifications de SAFARY.</small></span><input type="checkbox" checked={settings.notifications_enabled} onChange={e=>void updateSetting('notifications_enabled',e.target.checked)}/></div><button onClick={()=>setScreen('profile')}>Modifier mon profil <ChevronRight/></button><button className="logout-row" onClick={()=>void signOut()}><LogOut size={18}/> Déconnexion</button><p className="settings-version">SAFARY · V1</p></div></SubScreen>}
   {searchOpen&&<div className="modal-backdrop" onClick={()=>setSearchOpen(false)}><div className="search-modal" onClick={e=>e.stopPropagation()}><header><h2>Trouver des membres</h2><button onClick={()=>setSearchOpen(false)}><X/></button></header><input autoFocus value={searchTerm} onChange={e=>void searchPeople(e.target.value)} placeholder="Rechercher par nom utilisateur…"/><div className="search-results">{searchResults.map(p=><button key={p.id} onClick={()=>void startConversation(p)} disabled={busy}><Avatar profile={p}/><span><strong>{p.username}</strong><small>{p.display_name}</small></span><ChevronRight/></button>)}</div>{searchTerm.length<2&&<small>Saisis au moins deux caractères.</small>}</div></div>}
  </>}
