@@ -222,7 +222,7 @@ export default function App(){
    socket.onclose=()=>{window.clearInterval(heartbeatTimer);if(presenceSocket.current===socket)presenceSocket.current=null;if(!stopped){retryTimer=window.setTimeout(connect,delay);delay=Math.min(delay*2,30000)}};
   };
   connect();
-  const onVisible=()=>{if(document.visibilityState==='visible'&&(!presenceSocket.current||presenceSocket.current.readyState>1))connect()};
+  const onVisible=()=>{if(document.visibilityState==='visible'){if(!presenceSocket.current||presenceSocket.current.readyState>1)connect()}else{const socket=presenceSocket.current;presenceSocket.current=null;if(socket){socket.onclose=null;socket.close()}}};
   document.addEventListener('visibilitychange',onVisible);window.addEventListener('online',onVisible);
   return()=>{stopped=true;window.clearTimeout(retryTimer);window.clearInterval(heartbeatTimer);document.removeEventListener('visibilitychange',onVisible);window.removeEventListener('online',onVisible);const socket=presenceSocket.current;presenceSocket.current=null;if(socket){socket.onclose=null;socket.close()}};
  },[client,user,settings.online_status_visible]);
