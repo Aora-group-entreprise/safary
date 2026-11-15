@@ -1,0 +1,1 @@
+drop function if exists private.handle_new_user();
