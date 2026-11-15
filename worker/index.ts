@@ -29,7 +29,7 @@ export class ChatRoom extends DurableObject<Env> {
     const protocols = (request.headers.get("Sec-WebSocket-Protocol") ?? "").split(",").map(x => x.trim());
     const tokenProtocol = protocols.find(x => x.startsWith("session."));
     const token = tokenProtocol?.slice("session.".length) ?? "";
-    if (!protocols.includes("safary.v1") || token.length < 40 || token.length > 256) return json({ error: "Session manquante." }, 401);
+    if (!protocols.includes("safary.v1") || !/^[a-f0-9]{64}$/.test(token)) return json({ error: "Session manquante." }, 401);
 
     const base = this.env.SUPABASE_URL.replace(/\/$/, "");
     const auth = await fetch(base + "/functions/v1/safary-auth", {
