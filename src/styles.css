@@ -247,3 +247,7 @@
 .story-viewer-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 2px;border-bottom:1px solid rgba(255,255,255,.08)}
 .story-viewer-row span{display:flex;flex-direction:column;gap:3px}
 .story-viewer-row small,.story-viewer-row time{color:rgba(255,255,255,.58);font-size:12px}
+
+
+.settings-list .delete-account-row{display:flex;align-items:center;gap:10px;width:100%;margin-top:8px;padding:14px 16px;border:1px solid rgba(255,85,120,.28);border-radius:14px;background:rgba(255,65,105,.08);color:#ff7894;text-align:left;font:inherit}
+.settings-list .delete-account-row:disabled{opacity:.55}
