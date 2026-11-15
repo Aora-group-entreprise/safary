@@ -265,10 +265,6 @@ export default function App(){
   if(cover&&!cover.startsWith('http')){const signed=await client.storage.from('profile-media').createSignedUrl(cover,3600);cover=signed.data?.signedUrl??''}
   setViewedProfile({...data,avatar_url:avatar,cover_url:cover} as Profile);setScreen('profile');
  };
- const viewStory=async(index:number)=>{
-  const story=stories[index];if(!story)return;setStoryIndex(index);setScreen('story-viewer');
-  if(client&&user&&story.user_id!==user.id)await client.from('story_views').upsert({story_id:story.id,viewer_id:user.id},{onConflict:'story_id,viewer_id',ignoreDuplicates:true});
- };
  const deleteStory=async()=>{
   const story=stories[storyIndex];if(!client||!user||!story||story.user_id!==user.id)return;
   setBusy(true);const file=await client.storage.from('stories').remove([story.storage_path]);
