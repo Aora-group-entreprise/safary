@@ -133,12 +133,17 @@ Deno.serve(async (req: Request) => {
       const password = String(body.password ?? "");
       if (!/^[a-z0-9_.]{3,30}$/.test(username) || !password) return json(400, { error: "Pseudo ou mot de passe incorrect." });
       const since = new Date(Date.now() - 15 * 60 * 1000).toISOString();
-      const { count } = await db.from("safary_login_attempts").select("id", { count: "exact", head: true }).eq("username_normalized", username).gte("attempted_at", since).eq("succeeded", false);
-      if ((count ?? 0) >= 8) return json(429, { error: "Trop de tentatives. Réessaie dans 15 minutes." });
+      const ip = req.headers.get("cf-connecting-ip") ?? "";
+      const ipHash = ip ? await digest(ip) : null;
+      const { count: usernameFailures } = await db.from("safary_login_attempts").select("id", { count: "exact", head: true }).eq("username_normalized", username).gte("attempted_at", since).eq("succeeded", false);
+      const { count: ipFailures } = ipHash
+        ? await db.from("safary_login_attempts").select("id", { count: "exact", head: true }).eq("ip_hash", ipHash).gte("attempted_at", since).eq("succeeded", false)
+        : { count: 0 };
+      if ((usernameFailures ?? 0) >= 8 || (ipFailures ?? 0) >= 30) return json(429, { error: "Trop de tentatives. Réessaie dans 15 minutes." });
       const { data: account } = await db.from("safary_accounts").select("id,username,display_name,age,bio,password_hash,password_salt,avatar_path,cover_path").eq("username_normalized", username).maybeSingle();
       const computed = account ? await passwordHash(password, account.password_salt) : await passwordHash(password, "safary-fixed-dummy-salt");
       const ok = Boolean(account && safeEqual(computed, account.password_hash));
-      await db.from("safary_login_attempts").insert({ username_normalized: username, succeeded: ok });
+      await db.from("safary_login_attempts").insert({ username_normalized: username, succeeded: ok, ip_hash: ipHash });
       if (!ok || !account) return json(401, { error: "Pseudo ou mot de passe incorrect." });
       const session = await createSession(account.id, req);
       const { password_hash: _hash, password_salt: _salt, ...safe } = account;
