@@ -136,3 +136,19 @@
 .story-owner-link strong{font-size:12px}
 .story-viewer header .story-owner-link .avatar{width:36px;height:36px}
 @media(max-width:600px){.story-composer{padding:20px 18px calc(26px + env(safe-area-inset-bottom))}.story-dropzone{min-height:clamp(250px,42vh,390px);max-height:none}.story-composer-heading h2{font-size:23px}.story-composer-footer{align-items:stretch;flex-direction:column}.story-composer-footer .gradient-button{width:100%;min-height:50px}}
+
+
+/* Every member avatar is an intentional profile navigation target. */
+.avatar-profile-hit{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;cursor:pointer;border:0;background:transparent;padding:0;border-radius:50%;line-height:0}
+.avatar-profile-hit .avatar{pointer-events:none;transition:transform .18s ease,box-shadow .18s ease}
+.avatar-profile-hit:focus-visible{outline:2px solid #f04db8;outline-offset:4px}
+.avatar-profile-hit:active .avatar{transform:scale(.94)}
+.conversation .avatar-profile-hit{margin-right:0}
+.chat-avatar-hit{padding:0;border:0;background:transparent;border-radius:50%;flex:0 0 auto}
+.chat-avatar-hit .avatar{pointer-events:none}
+.search-results .avatar-profile-hit{margin-right:2px}
+.chat-upload-preview{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#17121b;border-top:1px solid #34283a;position:relative}
+.chat-upload-preview>img{width:66px;height:66px;object-fit:cover;border-radius:12px;border:1px solid #69415e;background:#09070b}
+.chat-upload-preview>span:last-child{font-size:10px;color:#c9bfce;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.chat-upload-preview>button{width:30px;height:30px;display:grid;place-items:center;border-radius:50%;border:1px solid #493449;background:#251a29;color:#fff;flex:0 0 auto}
+.chat-file-chip{max-width:75%;padding:12px 14px;border-radius:12px;background:#2a1c30;color:#f4d9ed;font-size:11px;overflow-wrap:anywhere}
