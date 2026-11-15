@@ -216,3 +216,11 @@
 .attachment-preview{max-width:min(72vw,330px)}
 .attachment-preview img{display:block;width:100%;height:auto;max-height:360px;object-fit:cover;border-radius:12px}
 @media(max-width:600px){.chat-messages{padding-left:14px;padding-right:14px;gap:13px}.bubble{max-width:78vw;padding:13px 16px 8px}.bubble>span{font-size:16px}.message-reaction-list{min-height:26px}}
+
+
+/* Live presence and Messenger read receipts */
+.avatar{position:relative}
+.avatar-online-dot{position:absolute;right:-1px;bottom:0;width:12px;height:12px;border-radius:50%;background:#31d158;border:2px solid #111015;box-shadow:0 0 0 1px #31d15855}
+.chat-header .avatar-online-dot{width:13px;height:13px;border-width:2px}
+.message-seen{font-size:10px;line-height:1.2;color:#a9a2b0;align-self:flex-end;margin-top:1px;font-weight:600}
+.message-row-outgoing .message-seen{color:#b9a8c1}
