@@ -43,3 +43,6 @@
 .profile-fields input:focus,.profile-fields textarea:focus{border-color:#c43aa5}
 .profile-save-button{width:calc(100% - 40px);margin:10px 20px 14px;min-height:48px;font-size:13px}
 .profile-editor>.outline-button{margin:0 20px 10px;min-height:46px;font-size:12px}
+
+.profile-editor .cover-edit-button{display:flex;flex-direction:row;align-items:center;gap:7px;padding:9px 12px;width:auto;height:auto;min-height:0;color:#fff;font-size:11px}
+.profile-editor .avatar-edit-button{display:grid;flex-direction:row;align-items:center;justify-content:center;padding:0;width:31px;height:31px;min-height:0;color:#fff}
