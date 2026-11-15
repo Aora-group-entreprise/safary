@@ -15,6 +15,10 @@ type Reaction={id:string;message_id:string;user_id:string;reaction:string};
 type Message={id:string;conversation_id:string;sender_id:string;body:string;message_type:string;created_at:string;attachments?:Attachment[];reactions?:Reaction[]};
 const MIME_TYPES=['image/jpeg','image/png','image/webp','image/gif','video/mp4','video/webm','video/quicktime'];
 const MAX_FILE=50*1024*1024;
+const CACHE_VERSION=1;
+const CACHE_PREFIX='safary:cache:v1:';
+const readCache=<T,>(key:string,maxAgeMs=30*60*1000):T|null=>{try{const raw=localStorage.getItem(CACHE_PREFIX+key);if(!raw)return null;const value=JSON.parse(raw);if(value.version!==CACHE_VERSION||Date.now()-value.savedAt>maxAgeMs){localStorage.removeItem(CACHE_PREFIX+key);return null}return value.data as T}catch{return null}};
+const writeCache=(key:string,data:unknown)=>{try{localStorage.setItem(CACHE_PREFIX+key,JSON.stringify({version:CACHE_VERSION,savedAt:Date.now(),data}))}catch{try{Object.keys(localStorage).filter(k=>k.startsWith(CACHE_PREFIX)).slice(0,3).forEach(k=>localStorage.removeItem(k));localStorage.setItem(CACHE_PREFIX+key,JSON.stringify({version:CACHE_VERSION,savedAt:Date.now(),data}))}catch{}}};
 const CHAT_FILE_TYPES=['image/jpeg','image/png','image/webp','image/gif','application/pdf','text/plain','audio/webm','audio/ogg','audio/mp4','audio/mpeg','audio/wav'];
 const initials=(value:string)=>value.trim().split(/\s+/).slice(0,2).map(x=>x[0]?.toUpperCase()??'').join('')||'S';
 const timeLabel=(value:string)=>{const date=new Date(value);if(Number.isNaN(date.getTime()))return '';return new Intl.DateTimeFormat('fr-FR',{hour:'2-digit',minute:'2-digit'}).format(date)};
@@ -77,15 +81,18 @@ export default function App(){
  const notify=(message:string)=>setNotice(message);
  const loadProfile=useCallback(async(uid:string)=>{
   if(!client)return;
+  const cached=readCache<Profile>('profile:'+uid,45*60*1000);if(cached){setProfile(cached);setDisplayName(cached.display_name??'');setUsername(cached.username??'');setBio(cached.bio??'')}
   const {data,error}=await client.from('profiles').select('id,username,display_name,avatar_url,bio,cover_url').eq('id',uid).maybeSingle();
   if(error){notify(error.message);return}
-  if(data){let resolvedAvatar=data.avatar_url??'';let resolvedCover=data.cover_url??'';if(resolvedAvatar&&!resolvedAvatar.startsWith('http')){const signed=await client.storage.from('profile-media').createSignedUrl(resolvedAvatar,3600);resolvedAvatar=signed.data?.signedUrl??'';}if(resolvedCover&&!resolvedCover.startsWith('http')){const signed=await client.storage.from('profile-media').createSignedUrl(resolvedCover,3600);resolvedCover=signed.data?.signedUrl??'';}const p={...data,avatar_url:resolvedAvatar,cover_url:resolvedCover} as Profile;setProfile(p);setDisplayName(p.display_name??'');setUsername(p.username??'');setBio(p.bio??'')}
+  if(data){let resolvedAvatar=data.avatar_url??'';let resolvedCover=data.cover_url??'';if(resolvedAvatar&&!resolvedAvatar.startsWith('http')){const signed=await client.storage.from('profile-media').createSignedUrl(resolvedAvatar,3600);resolvedAvatar=signed.data?.signedUrl??'';}if(resolvedCover&&!resolvedCover.startsWith('http')){const signed=await client.storage.from('profile-media').createSignedUrl(resolvedCover,3600);resolvedCover=signed.data?.signedUrl??'';}const p={...data,avatar_url:resolvedAvatar,cover_url:resolvedCover} as Profile;setProfile(p);writeCache('profile:'+uid,p);setDisplayName(p.display_name??'');setUsername(p.username??'');setBio(p.bio??'')}
   const pref=await client.from('user_settings').select('online_status_visible,notifications_enabled').eq('user_id',uid).maybeSingle();
   if(pref.data)setSettings(pref.data);
  },[client]);
 
  const loadHome=useCallback(async(uid:string)=>{
   if(!client)return;
+  const cachedHome=readCache<{chats:ChatRow[];stories:Story[]}>('home:'+uid,45*60*1000);if(cachedHome){setChats(cachedHome.chats);setStories(cachedHome.stories)}
+  let nextChats:ChatRow[]=[];
   const own=await client.from('conversation_members').select('conversation_id').eq('user_id',uid);
   if(own.error){notify(own.error.message);return}
   const ids=[...new Set((own.data??[]).map((x:any)=>x.conversation_id as string))];
@@ -101,8 +108,8 @@ export default function App(){
    for(const m of last.data??[])if(!latest.has(m.conversation_id))latest.set(m.conversation_id,m);
    const rows:ChatRow[]=[];
    for(const id of ids){const peer=(members.data??[]).find((m:any)=>m.conversation_id===id&&m.user_id!==uid);const p=peer?byId.get(peer.user_id):undefined;if(p){const m=latest.get(id);rows.push({id,user:p,lastMessage:m?.body??'Commencez à discuter',lastAt:m?.created_at??''})}}
-   rows.sort((a,b)=>b.lastAt.localeCompare(a.lastAt));setChats(rows);
-  }else setChats([]);
+   rows.sort((a,b)=>b.lastAt.localeCompare(a.lastAt));nextChats=rows;setChats(rows);
+  }else{nextChats=[];setChats([])}
   const active=await client.from('stories').select('id,user_id,storage_path,media_type,caption,created_at,expires_at').gt('expires_at',new Date().toISOString()).order('created_at',{ascending:false});
   if(active.error){notify(active.error.message);setStories([]);return}
   const raw=active.data??[];
@@ -114,7 +121,7 @@ export default function App(){
    const {data}=await client.storage.from('stories').createSignedUrl(s.storage_path,3600);
    const p=profileMap.get(s.user_id);return p&&data?.signedUrl?{...s,url:data.signedUrl,profile:p} as Story:null;
   }));
-  setStories(resolved.filter(Boolean) as Story[]);
+  const nextStories=resolved.filter(Boolean) as Story[];setStories(nextStories);writeCache('home:'+uid,{chats:nextChats,stories:nextStories});
  },[client]);
 
  useEffect(()=>{
@@ -142,6 +149,7 @@ export default function App(){
 
  const loadMessages=useCallback(async(id:string)=>{
   if(!client)return;
+  const cacheKey='messages:'+id;const cachedMessages=readCache<Message[]>(cacheKey,24*60*60*1000);if(cachedMessages)setMessages(cachedMessages);
   const {data,error}=await client.from('messages').select('id,conversation_id,sender_id,body,message_type,created_at').eq('conversation_id',id).order('created_at',{ascending:true}).limit(300);
   if(error){notify(error.message);return}
   const allRows=(data??[]) as Message[];const ids=allRows.map(m=>m.id);
@@ -155,7 +163,7 @@ export default function App(){
    if(!url){const downloaded=await client.storage.from('message-attachments').download(item.storage_path);if(downloaded.data){const audioBlob=item.mime_type.startsWith('audio/')?new Blob([downloaded.data],{type:item.mime_type}):downloaded.data;url=URL.createObjectURL(audioBlob);attachmentUrls.current.set(item.storage_path,url)}}
    if(url){const list=byMessage.get(item.message_id)??[];list.push({...item,url} as Attachment);byMessage.set(item.message_id,list)}
   }
-  setMessages(rows.map(m=>({...m,attachments:byMessage.get(m.id)??[],reactions:(reactionResult.data??[]).filter((x:any)=>x.message_id===m.id) as Reaction[]})));
+  const nextMessages=rows.map(m=>({...m,attachments:byMessage.get(m.id)??[],reactions:(reactionResult.data??[]).filter((x:any)=>x.message_id===m.id) as Reaction[]}));setMessages(nextMessages);writeCache(cacheKey,nextMessages.map(({attachments,...m})=>m));
  },[client,user]);
  const openChat=useCallback(async(row:ChatRow)=>{
   setContact(row.user);setConversationId(row.id);setScreen('chat');setMessages([]);await loadMessages(row.id);
@@ -163,15 +171,17 @@ export default function App(){
 
  useEffect(()=>{
   if(!client||!conversationId||screen!=='chat')return;
-  const timer=window.setInterval(()=>{void loadMessages(conversationId);if(user?.id)void loadHome(user.id)},4000);
-  return()=>window.clearInterval(timer);
+  let running=false;const refresh=async()=>{if(running||document.visibilityState!=='visible')return;running=true;try{await loadMessages(conversationId)}finally{running=false}};
+  const timer=window.setInterval(()=>void refresh(),20000);
+  const onVisible=()=>{if(document.visibilityState==='visible')void refresh()};document.addEventListener('visibilitychange',onVisible);window.addEventListener('online',onVisible);
+  return()=>{window.clearInterval(timer);document.removeEventListener('visibilitychange',onVisible);window.removeEventListener('online',onVisible)};
  },[client,conversationId,screen,user,loadHome,loadMessages]);
 
  const sendMessage=async(e:FormEvent)=>{
   e.preventDefault();if(chatFile){await uploadChatFile(chatFile,chatFile.type.startsWith('image/')?'image':'file');setChatFile(null);setChatFilePreview('');return}const body=draft.trim();if(!client||!user||!conversationId||!body)return;
   setDraft('');const {data,error}=await client.from('messages').insert({conversation_id:conversationId,sender_id:user.id,body,message_type:'text'}).select('id,conversation_id,sender_id,body,message_type,created_at').single();
   if(error){setDraft(body);notify(error.message);return}
-  setMessages(prev=>prev.some(m=>m.id===data.id)?prev:[...prev,data as Message]);
+  setMessages(prev=>{const next=prev.some(m=>m.id===data.id)?prev:[...prev,data as Message];writeCache('messages:'+conversationId,next.map(({attachments,...m})=>m));return next});
  };
 
  const uploadChatFile=async(file:File,kind:'image'|'file'|'voice'='file')=>{
@@ -330,7 +340,7 @@ export default function App(){
   const {error}=await client.from('user_settings').update({...next,updated_at:new Date().toISOString()}).eq('user_id',user.id);
   if(error){setSettings(settings);notify(error.message)}
  };
- const signOut=async()=>{if(client){const {error}=await client.functions.invoke('safary-auth',{body:{action:'logout'}});if(error)notify(error.message);localStorage.removeItem('safary_session');setScreen('auth');setSession(null);setUser(null);setProfile(null);setChats([]);setStories([]);setMessages([])}};
+ const signOut=async()=>{if(client){const {error}=await client.functions.invoke('safary-auth',{body:{action:'logout'}});if(error)notify(error.message);localStorage.removeItem('safary_session');Object.keys(localStorage).filter(k=>k.startsWith(CACHE_PREFIX)).forEach(k=>localStorage.removeItem(k));setScreen('auth');setSession(null);setUser(null);setProfile(null);setChats([]);setStories([]);setMessages([])}};
 
  const groupedStories=useMemo(()=>{const map=new Map<string,Story[]>();for(const s of stories){const list=map.get(s.user_id)??[];list.push(s);map.set(s.user_id,list)}return [...map.values()].map(items=>items[0])},[stories]);
  const activeStory=stories[storyIndex];
