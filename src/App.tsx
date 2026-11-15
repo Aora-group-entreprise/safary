@@ -433,12 +433,12 @@ export default function App(){
  const groupedStories=useMemo(()=>{const map=new Map<string,Story[]>();for(const s of stories){const list=map.get(s.user_id)??[];list.push(s);map.set(s.user_id,list)}return [...map.values()].map(items=>items[0])},[stories]);
  const activeStory=stories[storyIndex];
  useEffect(()=>()=>{stories.forEach(story=>{if(story.url.startsWith('blob:'))URL.revokeObjectURL(story.url)})},[stories]);
- if(loading)return <main className="app-shell"><section className="phone-frame loading-state"><span className="brand">i-tafa</span><p>Chargement sécurisé…</p></section></main>;
+ if(loading)return <main className="app-shell"><section className="phone-frame loading-state"><span className="brand"><img src="/app-icon.jpg" alt="" />i-tafa</span><p>Chargement sécurisé…</p></section></main>;
 
  return <main className="app-shell"><div className="ambient ambient-one"/><div className="ambient ambient-two"/><section className="phone-frame">
  {!isSupabaseConfigured&&<div className="setup-banner">Connexion i-tafa indisponible : vérifie la configuration Supabase.</div>}
  {(!session||!user||screen==='auth')&&<div className="auth-screen">
-  <div className="auth-brand">i-tafa<span>Le lien qui nous rapproche.</span></div>
+  <div className="auth-brand"><span className="brand-line"><img src="/app-icon.jpg" alt="" />i-tafa</span><span>Le lien qui nous rapproche.</span></div>
   {authMode==='signup'?<form className="form-card signup-card" onSubmit={e=>{e.preventDefault();if(signupStep===4)void submitAuth(e);else nextSignupStep()}}>
    <div className="signup-heading"><span className="signup-eyebrow">REJOINS LA COMMUNAUTÉ</span><h1>Créer ton compte</h1><p>Quelques étapes simples pour commencer.</p></div>
    <div className="signup-progress" aria-label={`Étape ${signupStep} sur 4`}>{[1,2,3,4].map(n=><span key={n} className={n<=signupStep?'completed':''}/>)}</div>
@@ -466,7 +466,7 @@ export default function App(){
   <p className="auth-foot">Un espace social pensé pour se retrouver.</p>
  </div>}
  {session&&user&&screen!=='auth'&&<>
-  {screen==='messages'&&<><header className="topbar"><div className="brand">i-tafa</div><div className="top-actions"><button aria-label="Rechercher un membre" onClick={()=>setSearchOpen(true)}><Search/></button><button aria-label="Nouvelle discussion" onClick={()=>setSearchOpen(true)}><PencilLine/></button></div></header>
+  {screen==='messages'&&<><header className="topbar"><div className="brand"><img src="/app-icon.jpg" alt="" />i-tafa</div><div className="top-actions"><button aria-label="Rechercher un membre" onClick={()=>setSearchOpen(true)}><Search/></button><button aria-label="Nouvelle discussion" onClick={()=>setSearchOpen(true)}><PencilLine/></button></div></header>
    <section className="stories-section"><div className="section-heading"><h2>Stories</h2><button aria-label="Créer une story" onClick={()=>setScreen('create-story')}><Plus/></button></div><div className="stories-row"><button className="story-item" onClick={()=>setScreen('create-story')}><span className="story-ring own-story"><Avatar profile={profile} size="small"/><i>+</i></span><span>Votre story</span></button>{groupedStories.map(s=><button className="story-item" key={s.id} onClick={()=>showStory(s)}><span className="story-ring"><Avatar profile={s.profile} size="small" online={!!presence[s.profile.id]}/></span><span>{s.profile.username}</span></button>)}</div></section>
    <section className="messages-section"><div className="section-heading"><h1>Messages</h1><button aria-label="Actualiser" onClick={()=>void loadHome(user.id)}><RefreshCw size={18}/></button></div>
    {chats.length===0?<div className="empty-state"><MessageCircle size={34}/><strong>Aucune conversation</strong><span>Recherche un membre i-tafa pour commencer à discuter.</span><button className="gradient-button" onClick={()=>setSearchOpen(true)}>Trouver des membres</button></div>:<div className="conversation-list">{chats.map(c=><button className="conversation" key={c.id} onClick={()=>void openChat(c)}><span className="avatar-profile-hit" role="button" tabIndex={0} aria-label={'Voir le profil de '+c.user.username} onClick={e=>{e.stopPropagation();void openProfile(c.user)}} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();e.stopPropagation();void openProfile(c.user)}}}><Avatar profile={c.user} online={!!presence[c.user.id]}/></span><span className="conversation-copy"><span className="conversation-top"><strong>{c.user.username}</strong><time>{c.lastAt?timeLabel(c.lastAt):''}</time></span><span className="preview">{c.lastMessage}</span></span></button>)}</div>}</section>
