@@ -42,10 +42,7 @@ export default {
     const allowed = UPSTREAM_PREFIXES.some(
       (prefix) => upstreamPath === prefix || upstreamPath.startsWith(prefix + "/"),
     );
-
-    if (!allowed) {
-      return json({ error: "API route not allowed." }, 404);
-    }
+    if (!allowed) return json({ error: "API route not allowed." }, 404);
 
     let upstreamBase: URL;
     try {
@@ -61,17 +58,17 @@ export default {
     const headers = new Headers(request.headers);
     headers.delete("host");
 
-    // Forward REST, Storage, Edge Functions and Realtime (including WebSocket upgrades)
-    // without exposing a service-role key. Supabase's public key is supplied by the client.
-    const upstreamRequest = new Request(upstream.toString(), {
-      method: request.method,
-      headers,
-      body: request.method === "GET" || request.method === "HEAD" ? undefined : request.body,
-      redirect: "manual",
-    });
-
     try {
+      // Reuse the incoming request so method, body and WebSocket upgrade metadata survive.
+      const upstreamRequest = new Request(upstream.toString(), {
+        ...request,
+        headers,
+      });
       const response = await fetch(upstreamRequest);
+
+      // A 101 response carries the upgraded WebSocket; do not wrap it in a new Response.
+      if (response.status === 101) return response;
+
       const responseHeaders = new Headers(response.headers);
       responseHeaders.set("x-safary-api", "cloudflare-worker");
       responseHeaders.set("x-content-type-options", "nosniff");
