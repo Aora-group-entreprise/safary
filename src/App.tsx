@@ -159,7 +159,7 @@ export default function App(){
   if(error){notify(error.message);return}
   const allRows=((data??[]) as Message[]).reverse();const ids=allRows.map(m=>m.id);
   const [hiddenResult,reactionResult]=ids.length?await Promise.all([client.from('message_user_hides').select('message_id').eq('user_id',user?.id??'').in('message_id',ids),client.from('message_reactions').select('id,message_id,user_id,reaction').in('message_id',ids)]):[{data:[],error:null},{data:[],error:null}];
-  if(contact?.id&&ids.length){const unread=allRows.filter(m=>m.sender_id!==user?.id).map(m=>({message_id:m.id,user_id:user.id}));if(unread.length)await client.from('message_receipts').upsert(unread,{onConflict:'message_id,user_id',ignoreDuplicates:true})}
+  if(contact?.id&&ids.length){const unread=allRows.filter(m=>m.sender_id!==user?.id).map(m=>({message_id:m.id,user_id:user.id}));if(unread.length){const written=await client.from('message_receipts').upsert(unread,{onConflict:'message_id,user_id',ignoreDuplicates:true});if(!written.error&&chatSocket.current?.readyState===WebSocket.OPEN)chatSocket.current.send(JSON.stringify({type:'sync'}))}}
   const receiptResult=ids.length&&contact?.id?await client.from('message_receipts').select('message_id').eq('user_id',contact.id).in('message_id',ids):{data:[],error:null};
   const seenIds=new Set((receiptResult.data??[]).map((x:any)=>x.message_id));
   const hidden=new Set((hiddenResult.data??[]).map((x:any)=>x.message_id));const rows=allRows.filter(m=>!hidden.has(m.id));
@@ -179,7 +179,7 @@ export default function App(){
   }));
   const byMessage=new Map<string,Attachment[]>();for(const attachment of downloadedAttachments){if(!attachment)continue;const list=byMessage.get(attachment.message_id)??[];list.push(attachment);byMessage.set(attachment.message_id,list)}
   const nextMessages=rows.map(m=>({...m,attachments:byMessage.get(m.id)??[],reactions:(reactionResult.data??[]).filter((x:any)=>x.message_id===m.id) as Reaction[],seenByPeer:m.sender_id===user?.id&&seenIds.has(m.id)}));setMessages(nextMessages);writeCache(cacheKey,nextMessages.map(({attachments,...m})=>m));
- },[client,user]);
+ },[client,user,contact]);
  const openChat=useCallback(async(row:ChatRow)=>{
   setContact(row.user);setConversationId(row.id);setScreen('chat');setMessages([]);await loadMessages(row.id);
  },[loadMessages]);
@@ -193,7 +193,7 @@ export default function App(){
    const scheme=window.location.protocol==='https:'?'wss:':'ws:';
    const socket=new WebSocket(scheme+'//'+window.location.host+'/realtime/inbox/'+user.id,['safary.v1','session.'+token]);
    inboxSocket.current=socket;
-   socket.onmessage=event=>{try{const payload=JSON.parse(String(event.data));if(payload.type==='inbox-sync'&&payload.actorId!==user.id)void loadHome(user.id);else if(payload.type==='presence')setPresence(prev=>({...prev,[payload.userId]:!!payload.online}));else if(payload.type==='presence-snapshot'){setPresence(prev=>{const next={...prev};for(const item of payload.users??[])next[item.userId]=!!item.online;return next})}}catch{}};
+   socket.onmessage=event=>{try{const payload=JSON.parse(String(event.data));if(payload.type==='inbox-sync'&&payload.actorId!==user.id)void loadHome(user.id);else if(payload.type==='presence')setPresence(prev=>({...prev,[payload.userId]:!!payload.online}));else if(payload.type==='presence-snapshot'){setPresence(prev=>{const next={...prev};for(const item of payload.users??[])next[item.userId]=!!item.online;return next})}else if(payload.type==='activity'){void loadHome(user.id);if(screen==='chat'&&conversationId)void loadMessages(conversationId)}}catch{}};
    socket.onerror=()=>socket.close();
    socket.onclose=()=>{if(inboxSocket.current===socket)inboxSocket.current=null;if(!stopped){retryTimer=window.setTimeout(connectInbox,retryDelay);retryDelay=Math.min(retryDelay*2,30000)}};
    socket.onopen=()=>{retryDelay=1000};
