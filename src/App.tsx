@@ -255,7 +255,7 @@ export default function App(){
   e.preventDefault();if(!client||!user)return;
   if(!/^[a-z0-9_.]{3,30}$/i.test(username.trim())){notify('Le nom utilisateur doit contenir 3 à 30 caractères (lettres, chiffres, _ ou .).');return}
   setBusy(true);
-  const {data,error}=await client.functions.invoke('safary-auth',{body:{action:'profile-update',username:username.trim().toLowerCase(),displayName:displayName.trim(),bio}});
+  const {error}=await client.functions.invoke('safary-auth',{body:{action:'profile-update',username:username.trim().toLowerCase(),displayName:displayName.trim(),bio}});
   if(error){notify(error.message);setBusy(false);return}
   const profileUpdate=avatarUrl.trim().startsWith('http')
    ? await client.from('profiles').update({avatar_url:avatarUrl.trim()}).eq('id',user.id).select('id,username,display_name,avatar_url,bio').single()
@@ -268,7 +268,7 @@ export default function App(){
   const {error}=await client.from('user_settings').update({...next,updated_at:new Date().toISOString()}).eq('user_id',user.id);
   if(error){setSettings(settings);notify(error.message)}
  };
- const signOut=async()=>{if(client){const token=localStorage.getItem('safary_session');const {error}=await client.functions.invoke('safary-auth',{body:{action:'logout'}});if(error)notify(error.message);localStorage.removeItem('safary_session');setScreen('auth');setSession(null);setUser(null);setProfile(null);setChats([]);setStories([]);setMessages([])}};
+ const signOut=async()=>{if(client){const {error}=await client.functions.invoke('safary-auth',{body:{action:'logout'}});if(error)notify(error.message);localStorage.removeItem('safary_session');setScreen('auth');setSession(null);setUser(null);setProfile(null);setChats([]);setStories([]);setMessages([])}};
 
  const groupedStories=useMemo(()=>{const map=new Map<string,Story[]>();for(const s of stories){const list=map.get(s.user_id)??[];list.push(s);map.set(s.user_id,list)}return [...map.values()].map(items=>items[0])},[stories]);
  const activeStory=stories[storyIndex];
