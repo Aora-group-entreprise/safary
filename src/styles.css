@@ -58,6 +58,7 @@
 .profile-preview-bio{margin:18px 20px;color:#c9bfce;font-size:13px;line-height:1.6;white-space:pre-wrap}
 .profile-preview-actions{padding:10px 20px}
 .profile-preview-actions .gradient-button{width:100%;min-height:46px}
-.bottom-nav-fixed{position:sticky;bottom:0;left:0;right:0;z-index:5;margin-top:auto;flex-shrink:0}
+ .bottom-nav-fixed{position:relative;bottom:auto;left:auto;right:auto;z-index:5;margin-top:auto;flex-shrink:0}
+.sub-screen{height:auto;flex:1;min-height:0;}
 .phone-frame{isolation:isolate}
 @media(max-width:600px){.bottom-nav-fixed{padding-bottom:env(safe-area-inset-bottom);height:calc(66px + env(safe-area-inset-bottom));}}
