@@ -153,7 +153,7 @@ export default function App(){
  },[client,user,loadProfile,loadHome]);
 
  const loadMessages=useCallback(async(id:string)=>{
-  if(!client)return;
+  if(!client||!user)return;
   const cacheKey='messages:'+id;const cachedMessages=readCache<Message[]>(cacheKey,24*60*60*1000);if(cachedMessages)setMessages(cachedMessages);
   const {data,error}=await client.from('messages').select('id,conversation_id,sender_id,body,message_type,created_at').eq('conversation_id',id).order('created_at',{ascending:false}).limit(100);
   if(error){notify(error.message);return}
