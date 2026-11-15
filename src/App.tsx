@@ -61,6 +61,10 @@ export default function App(){
  const [notice,setNotice]=useState('');
  const [loading,setLoading]=useState(true);
  const [recording,setRecording]=useState(false);
+ const [recordingPaused,setRecordingPaused]=useState(false);
+ const [recordingSeconds,setRecordingSeconds]=useState(0);
+ const discardRecording=useRef(false);
+ const sendRecordingOnStop=useRef(false);
  const [voiceDraft,setVoiceDraft]=useState<File|null>(null);
  const [voicePreview,setVoicePreview]=useState('');
  const [activeMessage,setActiveMessage]=useState<Message|null>(null);
@@ -70,6 +74,7 @@ export default function App(){
  const fileInputRef=useRef<HTMLInputElement|null>(null);
  const attachmentUrls=useRef(new Map<string,string>());
  useEffect(()=>()=>{attachmentUrls.current.forEach(url=>URL.revokeObjectURL(url));attachmentUrls.current.clear()},[]);
+ useEffect(()=>{if(!recording||recordingPaused)return;const timer=window.setInterval(()=>setRecordingSeconds(value=>value+1),1000);return()=>window.clearInterval(timer)},[recording,recordingPaused]);
 
  const notify=(message:string)=>setNotice(message);
  const loadProfile=useCallback(async(uid:string)=>{
@@ -186,16 +191,35 @@ export default function App(){
   else{await loadMessages(conversationId);await loadHome(user.id)}
   setBusy(false);return true;
  };
+ const formatVoiceTime=(seconds:number)=>String(Math.floor(seconds/60)).padStart(2,'0')+':'+String(seconds%60).padStart(2,'0');
+ const finishVoiceRecording=(send:boolean)=>{
+  const recorder=recorderRef.current;if(!recorder||recorder.state==='inactive')return;
+  discardRecording.current=!send;sendRecordingOnStop.current=send;
+  if(recorder.state==='paused')recorder.resume();
+  recorder.stop();
+ };
+ const toggleVoicePause=()=>{
+  const recorder=recorderRef.current;if(!recorder)return;
+  if(recorder.state==='recording'){recorder.pause();setRecordingPaused(true)}
+  else if(recorder.state==='paused'){recorder.resume();setRecordingPaused(false)}
+ };
  const toggleVoiceRecording=async()=>{
-  if(recording){recorderRef.current?.stop();return}
+  if(recording){finishVoiceRecording(true);return}
   if(!navigator.mediaDevices?.getUserMedia||typeof MediaRecorder==='undefined'){notify('Ton navigateur ne permet pas les messages vocaux.');return}
   try{
-   const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+   const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
    const mime=['audio/webm;codecs=opus','audio/ogg;codecs=opus','audio/mp4'].find(t=>MediaRecorder.isTypeSupported(t));
-   const recorder=new MediaRecorder(stream,mime?{mimeType:mime}:undefined);recorderChunks.current=[];
+   const recorder=new MediaRecorder(stream,mime?{mimeType:mime}:undefined);recorderChunks.current=[];discardRecording.current=false;sendRecordingOnStop.current=false;setRecordingSeconds(0);setRecordingPaused(false);
    recorder.ondataavailable=e=>{if(e.data.size)recorderChunks.current.push(e.data)};
-   recorder.onstop=()=>{stream.getTracks().forEach(track=>track.stop());setRecording(false);const type=(recorder.mimeType||'audio/webm').split(';')[0];const ext=type.includes('mp4')?'m4a':type.includes('ogg')?'ogg':'webm';const blob=new Blob(recorderChunks.current,{type});if(!blob.size){notify('Aucun son n’a été enregistré. Réessaie.');return}const file=new File([blob],'vocal-'+Date.now()+'.'+ext,{type});setVoiceDraft(file);setVoicePreview(URL.createObjectURL(blob))};
-   recorderRef.current=recorder;recorder.start();setRecording(true);
+   recorder.onstop=async()=>{
+    stream.getTracks().forEach(track=>track.stop());setRecording(false);setRecordingPaused(false);
+    const shouldSend=sendRecordingOnStop.current&&!discardRecording.current;sendRecordingOnStop.current=false;
+    if(!shouldSend){recorderChunks.current=[];return}
+    const type=(recorder.mimeType||'audio/webm').split(';')[0];const ext=type.includes('mp4')?'m4a':type.includes('ogg')?'ogg':'webm';const blob=new Blob(recorderChunks.current,{type});recorderChunks.current=[];
+    if(!blob.size){notify('Aucun son n’a été enregistré. Réessaie.');return}
+    const file=new File([blob],'vocal-'+Date.now()+'.'+ext,{type});await uploadChatFile(file,'voice');
+   };
+   recorderRef.current=recorder;recorder.start(250);setRecording(true);
   }catch(error){notify(error instanceof Error?error.message:'Impossible d’accéder au microphone.')}
  };
  const searchPeople=async(term:string)=>{
@@ -354,7 +378,7 @@ export default function App(){
   {screen==='messages'&&null}
   {screen==='chat'&&<div className="chat-screen"><header className="chat-header"><button onClick={()=>{setScreen('messages');setConversationId('')}} aria-label="Retour"><ArrowLeft/></button><button type="button" className="avatar-profile-hit chat-avatar-hit" aria-label="Voir le profil" onClick={()=>contact&&void openProfile(contact)}><Avatar profile={contact}/></button><div><strong>{contact?.username??'Discussion'}</strong><span>{contact?.display_name??''}</span></div><button className="push-right" aria-label="Profil" onClick={()=>contact&&void openProfile(contact)}><InfoIcon/></button></header>
    <div className="chat-messages">{messages.length===0&&<p className="empty-chat">Démarre la conversation 👋</p>}{messages.map(m=><div className={'bubble '+(m.sender_id===user.id?'outgoing':'incoming')} key={m.id} onPointerDown={()=>beginMessagePress(m)} onPointerUp={clearLongPress} onPointerLeave={clearLongPress} onPointerCancel={clearLongPress} onContextMenu={e=>{e.preventDefault();setActiveMessage(m)}}>{m.message_type==='text'&&<span>{m.body}</span>}{m.attachments?.map(a=><div className="attachment-preview" key={a.id}>{a.mime_type.startsWith('image/')?<img src={a.url} alt={a.file_name}/>:a.mime_type.startsWith('audio/')?<div className="voice-message"><span>♫</span><audio controls preload="metadata" src={a.url}/></div>:<a href={a.url} download={a.file_name}>{a.file_name}</a>}</div>)}{m.reactions&&m.reactions.length>0&&<div className="message-reaction-list">{Object.entries(m.reactions.reduce((acc:Record<string,number>,r)=>{acc[r.reaction]=(acc[r.reaction]||0)+1;return acc},{})).map(([emoji,count])=><span key={emoji}>{emoji} {count}</span>)}</div>}<time>{timeLabel(m.created_at)}</time></div>)}</div>
-   {activeMessage&&<div className="message-action-backdrop" onClick={()=>setActiveMessage(null)}><div className="message-action-panel" onClick={e=>e.stopPropagation()}><div className="reaction-picker">{['❤️','😂','😮','😢','😡','👍'].map(emoji=><button key={emoji} onClick={()=>void reactToMessage(activeMessage,emoji)}>{emoji}</button>)}</div><button onClick={()=>void deleteMessage(activeMessage,'me')}><Trash2 size={17}/> Supprimer pour moi</button>{activeMessage.sender_id===user.id&&<button className="danger-action" onClick={()=>void deleteMessage(activeMessage,'everyone')}><Trash2 size={17}/> Supprimer pour tout le monde</button>}<button className="cancel-action" onClick={()=>setActiveMessage(null)}>Annuler</button></div></div>}{voiceDraft&&<div className="voice-draft-panel"><button type="button" className="voice-trash" aria-label="Supprimer le vocal" onClick={()=>{setVoiceDraft(null);URL.revokeObjectURL(voicePreview);setVoicePreview('')}}><Trash2/></button><div className="voice-draft-wave"><span>♫</span>{Array.from({length:34},(_,i)=><i key={i} style={{height:(8+(i*13%23))+'px'}}/>)}<audio controls preload="metadata" src={voicePreview}/></div><button type="button" className="voice-send" aria-label="Envoyer le vocal" disabled={busy} onClick={()=>{if(voiceDraft){void uploadChatFile(voiceDraft,'voice').then(sent=>{if(sent){setVoiceDraft(null);URL.revokeObjectURL(voicePreview);setVoicePreview('')}})}}}><Send/></button></div>}{chatFile&&<div className="chat-upload-preview">{chatFile.type.startsWith('image/')?<img src={chatFilePreview} alt="Aperçu de la pièce jointe"/>:<span className="chat-file-chip">{chatFile.name}</span>}<button type="button" aria-label="Retirer le fichier" onClick={()=>{setChatFile(null);setChatFilePreview('')}}><X/></button><span>{chatFile.name}</span></div>}<form className="composer" onSubmit={sendMessage}><button type="button" aria-label="Joindre un fichier" onClick={()=>fileInputRef.current?.click()}><Plus/></button><input ref={fileInputRef} type="file" accept={CHAT_FILE_TYPES.join(',')} hidden onChange={e=>{const file=e.target.files?.[0];if(file){setChatFile(file);setChatFilePreview(file.type.startsWith('image/')?URL.createObjectURL(file):'')}e.currentTarget.value=''}}/><input value={draft} onChange={e=>setDraft(e.target.value)} placeholder="Écrire un message…" maxLength={10000}/><button type="button" aria-label={recording?'Arrêter le vocal':'Enregistrer un vocal'} onClick={()=>void toggleVoiceRecording()}>{recording?<Square/>:<Mic/>}</button><button className="send-button" type="submit" aria-label={chatFile?'Envoyer la pièce jointe':'Envoyer'} disabled={(!draft.trim()&&!chatFile&&!voiceDraft)||busy}><Send/></button></form></div>}
+   {activeMessage&&<div className="message-action-backdrop" onClick={()=>setActiveMessage(null)}><div className="message-action-panel" onClick={e=>e.stopPropagation()}><div className="reaction-picker">{['❤️','😂','😮','😢','😡','👍'].map(emoji=><button key={emoji} onClick={()=>void reactToMessage(activeMessage,emoji)}>{emoji}</button>)}</div><button onClick={()=>void deleteMessage(activeMessage,'me')}><Trash2 size={17}/> Supprimer pour moi</button>{activeMessage.sender_id===user.id&&<button className="danger-action" onClick={()=>void deleteMessage(activeMessage,'everyone')}><Trash2 size={17}/> Supprimer pour tout le monde</button>}<button className="cancel-action" onClick={()=>setActiveMessage(null)}>Annuler</button></div></div>}{recording&&<div className="voice-recording-bar"><button type="button" className="voice-record-trash" aria-label="Annuler le vocal" onClick={()=>finishVoiceRecording(false)}><Trash2/></button><div className="voice-live-pill"><span className="voice-live-dot"/><div className="voice-live-wave">{Array.from({length:42},(_,i)=><i key={i} style={{height:(7+((i*17+recordingSeconds*3)%25))+'px'}}/> )}</div><time>{formatVoiceTime(recordingSeconds)}</time></div><button type="button" className="voice-record-pause" aria-label={recordingPaused?'Reprendre':'Pause'} onClick={toggleVoicePause}>{recordingPaused?'▶':'Ⅱ'}</button><button type="button" className="voice-record-send" aria-label="Envoyer le vocal" disabled={busy} onClick={()=>finishVoiceRecording(true)}><Send size={22}/></button></div>}{chatFile&&<div className="chat-upload-preview">{chatFile.type.startsWith('image/')?<img src={chatFilePreview} alt="Aperçu de la pièce jointe"/>:<span className="chat-file-chip">{chatFile.name}</span>}<button type="button" aria-label="Retirer le fichier" onClick={()=>{setChatFile(null);setChatFilePreview('')}}><X/></button><span>{chatFile.name}</span></div>}<form className="composer" onSubmit={sendMessage}><button type="button" aria-label="Joindre un fichier" onClick={()=>fileInputRef.current?.click()}><Plus/></button><input ref={fileInputRef} type="file" accept={CHAT_FILE_TYPES.join(',')} hidden onChange={e=>{const file=e.target.files?.[0];if(file){setChatFile(file);setChatFilePreview(file.type.startsWith('image/')?URL.createObjectURL(file):'')}e.currentTarget.value=''}}/><input value={draft} onChange={e=>setDraft(e.target.value)} placeholder="Écrire un message…" maxLength={10000}/><button type="button" aria-label={recording?'Arrêter le vocal':'Enregistrer un vocal'} onClick={()=>void toggleVoiceRecording()} onClick={()=>void toggleVoiceRecording()}>{recording?<Square/>:<Mic/>}</button><button className="send-button" type="submit" aria-label={chatFile?'Envoyer la pièce jointe':'Envoyer'} disabled={(!draft.trim()&&!chatFile&&!voiceDraft)||busy}><Send/></button></form></div>}
   {screen==='create-story'&&<SubScreen title="Créer une story" onBack={()=>setScreen('messages')}><div className="story-composer"><div className="story-composer-heading"><span className="signup-eyebrow">PARTAGE UN MOMENT</span><h2>Ta story, ton instant.</h2><p>Une photo ou une vidéo, visible pendant 48 heures.</p></div><label className={'story-dropzone '+(storyPreview?'has-preview':'')}>
     {storyPreview?(storyFile?.type.startsWith('video/')?<video src={storyPreview} muted autoPlay loop playsInline/>:<img src={storyPreview} alt="Aperçu de la story"/>):<><span className="story-drop-icon"><ImagePlus/></span><strong>Ajoute ton média</strong><small>JPG, PNG, WebP, GIF ou vidéo · 50 Mo max</small></>}
     <span className="story-choose"><Camera size={17}/> {storyFile?'Changer le média':'Choisir depuis la galerie'}</span><input type="file" accept={MIME_TYPES.join(',')} onChange={e=>{const f=e.target.files?.[0]??null;setStoryFile(f);setStoryPreview(f?URL.createObjectURL(f):'')}}/>
