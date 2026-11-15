@@ -156,6 +156,43 @@ Deno.serve(async (req: Request) => {
       await db.from("safary_sessions").update({ revoked_at: new Date().toISOString() }).eq("id", auth.sessionId);
       return json(200, { success: true });
     }
+    if (action === "delete-account") {
+      const storyResult = await db.from("stories").select("storage_path").eq("user_id", auth.account.id);
+      if (storyResult.error) throw storyResult.error;
+      const memberResult = await db.from("conversation_members").select("conversation_id").eq("user_id", auth.account.id);
+      if (memberResult.error) throw memberResult.error;
+      const conversationIds = [...new Set((memberResult.data ?? []).map((row: any) => row.conversation_id as string))];
+      const messageResult = conversationIds.length
+        ? await db.from("messages").select("id").in("conversation_id", conversationIds)
+        : { data: [], error: null };
+      if (messageResult.error) throw messageResult.error;
+      const messageIds = (messageResult.data ?? []).map((row: any) => row.id as string);
+      const attachmentResult = messageIds.length
+        ? await db.from("message_attachments").select("storage_path").in("message_id", messageIds)
+        : { data: [], error: null };
+      if (attachmentResult.error) throw attachmentResult.error;
+
+      const removePaths = async (bucket: string, paths: string[]) => {
+        const unique = [...new Set(paths.filter(Boolean))];
+        for (let i = 0; i < unique.length; i += 100) {
+          const { error } = await db.storage.from(bucket).remove(unique.slice(i, i + 100));
+          if (error) throw error;
+        }
+      };
+      await Promise.all([
+        removePaths("profile-media", [auth.account.avatar_path, auth.account.cover_path]),
+        removePaths("stories", (storyResult.data ?? []).map((row: any) => row.storage_path)),
+        removePaths("message-attachments", (attachmentResult.data ?? []).map((row: any) => row.storage_path)),
+      ]);
+
+      if (conversationIds.length) {
+        const { error } = await db.from("conversations").delete().in("id", conversationIds);
+        if (error) throw error;
+      }
+      const { error } = await db.from("safary_accounts").delete().eq("id", auth.account.id);
+      if (error) throw error;
+      return json(200, { success: true, account_deleted: true });
+    }
     if (action === "profile-update") {
       const username = String(body.username ?? auth.account.username).trim();
       const normalized = username.toLowerCase();
