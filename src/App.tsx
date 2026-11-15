@@ -38,6 +38,7 @@ export default function App(){
  const [conversationId,setConversationId]=useState('');
  const [realtimeConnected,setRealtimeConnected]=useState(false);
  const chatSocket=useRef<WebSocket|null>(null);
+ const inboxSocket=useRef<WebSocket|null>(null);
  const [contact,setContact]=useState<Profile|null>(null);
  const [storyIndex,setStoryIndex]=useState(0);
  const [draft,setDraft]=useState('');
@@ -170,6 +171,26 @@ export default function App(){
  const openChat=useCallback(async(row:ChatRow)=>{
   setContact(row.user);setConversationId(row.id);setScreen('chat');setMessages([]);await loadMessages(row.id);
  },[loadMessages]);
+
+ useEffect(()=>{
+  if(!client||!user)return;
+  let stopped=false;let retryTimer=0;let retryDelay=1000;
+  const connectInbox=()=>{
+   if(stopped||document.visibilityState!=='visible'||!navigator.onLine)return;
+   const token=localStorage.getItem('safary_session');if(!token)return;
+   const scheme=window.location.protocol==='https:'?'wss:':'ws:';
+   const socket=new WebSocket(scheme+'//'+window.location.host+'/realtime/inbox/'+user.id,['safary.v1','session.'+token]);
+   inboxSocket.current=socket;
+   socket.onmessage=event=>{try{const payload=JSON.parse(String(event.data));if(payload.type==='inbox-sync'&&payload.actorId!==user.id)void loadHome(user.id)}catch{}};
+   socket.onerror=()=>socket.close();
+   socket.onclose=()=>{if(inboxSocket.current===socket)inboxSocket.current=null;if(!stopped){retryTimer=window.setTimeout(connectInbox,retryDelay);retryDelay=Math.min(retryDelay*2,30000)}};
+   socket.onopen=()=>{retryDelay=1000};
+  };
+  connectInbox();
+  const onVisible=()=>{if(document.visibilityState==='visible'&&(!inboxSocket.current||inboxSocket.current.readyState>1))connectInbox()};
+  document.addEventListener('visibilitychange',onVisible);window.addEventListener('online',onVisible);
+  return()=>{stopped=true;window.clearTimeout(retryTimer);document.removeEventListener('visibilitychange',onVisible);window.removeEventListener('online',onVisible);const socket=inboxSocket.current;inboxSocket.current=null;if(socket){socket.onclose=null;socket.close()}};
+ },[client,user,loadHome]);
 
  useEffect(()=>{
   if(!client||!conversationId||screen!=='chat'||!user){setRealtimeConnected(false);return}
