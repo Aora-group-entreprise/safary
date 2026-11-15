@@ -1,47 +1,62 @@
 # SAFARY V1
 
-Réseau social SAFARY — les 7 écrans convenus : Messages, Discussion, Création de Story, Profil, Paramètres, Authentification et Visualisation de Story. Le périmètre reste volontairement limité à ces écrans.
+Réseau social SAFARY — les 7 écrans convenus : Messages, Discussion, Création de Story, Profil, Paramètres, Authentification et Visualisation de Story.
 
 ## Stack
+
 - React 18, TypeScript et Vite
-- Supabase Auth (téléphone + mot de passe), PostgreSQL et Realtime
-- Supabase Storage privé pour les Stories
+- Cloudflare Workers + Static Assets pour servir le site et le proxy API sur le même domaine
+- Supabase PostgreSQL, Storage, Edge Functions et Realtime
+- GitHub Actions pour le déploiement automatique depuis `main`
 
-## Fonctionnalités connectées
-- Inscription/connexion par numéro de téléphone et mot de passe, puis vérification SMS si activée dans Supabase Auth.
-- Création automatique du profil et des préférences lors de la création d'un compte.
-- Recherche des membres par nom utilisateur et démarrage d'une conversation privée.
-- Historique des messages persisté dans PostgreSQL et écoute des nouveaux messages via Realtime.
-- Envoi de photos, documents et messages vocaux enregistrés au microphone, avec stockage privé et lecture réservée aux membres de la conversation.
-- Stories photo/vidéo avec légende, URL signée privée, vues et suppression par le propriétaire.
-- Expiration serveur après 48 heures.
-- Modification du profil, statut en ligne, notifications et déconnexion.
+## Architecture de production
 
-## Configuration locale
-1. Installer Node.js LTS.
+Le navigateur utilise exclusivement le même domaine pour le site et les services Supabase :
+
+- `/` — application React
+- `/api/health` — état du Worker SAFARY
+- `/api/rest/v1/*` — PostgreSQL / PostgREST
+- `/api/storage/v1/*` — Supabase Storage
+- `/api/functions/v1/*` — Supabase Edge Functions
+- `/api/realtime/v1/*` — Supabase Realtime (y compris WebSocket)
+
+Le Worker ne contient aucune clé `service_role`. Il transmet la clé publique envoyée par le client et laisse les contrôles RLS de Supabase appliquer les autorisations. Les clés privées restent exclusivement côté serveur Supabase.
+
+## Déploiement Cloudflare
+
+1. Créer ou sélectionner un compte Cloudflare.
+2. Dans GitHub > Settings > Secrets and variables > Actions, ajouter :
+   - `CLOUDFLARE_API_TOKEN` — token avec les droits de déploiement Workers.
+   - `CLOUDFLARE_ACCOUNT_ID` — identifiant du compte Cloudflare.
+3. Vérifier que le dépôt utilise la branche `main`.
+4. Chaque push sur `main` lance le workflow `.github/workflows/cloudflare-deploy.yml`.
+5. Le workflow installe les dépendances, construit `dist/` puis exécute `wrangler deploy`.
+6. Dans Cloudflare, rattacher le domaine personnalisé au Worker `safary` après le premier déploiement.
+
+Le projet Cloudflare est configuré dans `wrangler.jsonc`. L'URL Supabase non secrète y est déclarée dans `vars.SUPABASE_URL`. Aucun secret Supabase n'est requis par le proxy.
+
+## Développement local
+
+1. Installer Node.js 22 ou plus récent.
 2. Exécuter `npm install`.
-3. Copier `.env.example` vers `.env`.
-4. Renseigner `VITE_SUPABASE_URL` et `VITE_SUPABASE_PUBLISHABLE_KEY`. Le projet SAFARY possède déjà une configuration publique de secours dans le client web ; ces variables permettent de remplacer la cible pour les environnements de déploiement. La valeur de la deuxième variable doit être une clé publique Supabase (publishable ou legacy anon), jamais une clé `service_role`/secret.
-5. Exécuter `npm run dev`.
-6. Vérifier `npm run typecheck` puis `npm run build`.
+3. Copier `.env.example` vers `.env` et renseigner la clé publique Supabase si elle doit être remplacée.
+4. Lancer `npm run dev`.
 
-## Base Supabase
-Les migrations sont versionnées dans `supabase/migrations` et ont été appliquées au projet `safary` :
-1. `0001_initial_schema.sql` — tables, RLS, profils, conversations et publication Realtime.
-2. `0002_story_retention.sql` — bucket privé et durée de vie de 48 h.
-3. `0003_supporting_indexes.sql` — index supplémentaires.
-4. `0004_story_cleanup_schedule.sql` — secret stocké dans Vault et nettoyage automatique toutes les heures via pg_cron + pg_net.
-5. `0005_private_conversation_rpc.sql` — isole la fonction privilégiée de création de conversation dans le schéma privé.
-6. `0006_message_attachments.sql` — bucket privé pour les fichiers et vocaux de discussion.
-7. `0007_message_storage_read_policy.sql` — sécurise l'accès aux fichiers en cours d'envoi.
+Vite proxifie localement `/api/*` vers le projet Supabase. Pour tester le Worker et les assets ensemble, exécuter `npm run dev:worker`.
 
-Les profils sont visibles aux membres connectés pour permettre la recherche. Ne place aucune donnée privée dans la table `profiles`. Les conversations et messages sont limités aux membres par RLS. La fonction `create_direct_conversation` est volontairement SECURITY DEFINER : elle vérifie `auth.uid()`, refuse un destinataire absent ou identique et crée les deux adhésions atomiquement. Les clients ne disposent d'aucun droit d'insertion direct dans `conversation_members`.
+## Commandes
 
-## Stories : nettoyage
-La base impose l'expiration exacte à 48 heures et masque immédiatement les Stories expirées. La fonction Edge `cleanup-expired-stories` est déployée. Le secret aléatoire est créé et conservé dans Supabase Vault ; pg_cron + pg_net appellent automatiquement la fonction chaque heure. La fonction utilise les variables serveur intégrées de Supabase et vérifie le secret côté serveur. Aucun secret de nettoyage n'est exposé au navigateur.
+- `npm run typecheck` — vérification TypeScript de l'application.
+- `npm run build` — build de production.
+- `npm run dev:worker` — build puis lancement local Wrangler.
+- `npm run deploy` — build puis déploiement Cloudflare.
 
-## Configuration Auth requise
-Dans le dashboard Supabase, activer le fournisseur Phone et configurer un fournisseur SMS ainsi que les règles de vérification souhaitées. Sans fournisseur SMS configuré, l'inscription avec confirmation par SMS ne pourra pas aboutir. Configurer aussi les limites anti-abus et les modèles SMS avant une ouverture publique.
+## Backend Supabase
 
-## État et limites
-Les principaux parcours V1 sont désormais connectés au backend, mais une CI verte ne remplace pas les tests de bout en bout avec deux vrais comptes et deux appareils. Les notifications push, la modération, le blocage/signalement et la publication mobile ne font pas partie du parcours fonctionnel livré dans cette version. Ne pas annoncer l'application comme prête pour une ouverture publique avant ces tests et la configuration SMS/cron.
+Les migrations versionnées dans `supabase/migrations` sont déjà appliquées au projet SAFARY. Les tables principales incluent les comptes, sessions, profils, conversations, membres, messages, pièces jointes, Stories, vues et préférences. Les politiques RLS sont activées.
+
+Les fonctions Edge actives sont `safary-auth` et `cleanup-expired-stories`. Le nettoyage des Stories expirées est planifié côté Supabase. L'authentification SAFARY utilise ses sessions applicatives personnalisées ; aucune clé privilégiée ne doit être exposée au navigateur.
+
+## Vérifications avant ouverture
+
+Le déploiement de l'infrastructure ne signifie pas que les tests fonctionnels sont terminés. Avant toute ouverture publique, tester sur deux comptes et deux appareils : inscription, reconnexion après rechargement, profil, recherche, conversation, messages, fichiers, Stories, expiration, déconnexion et accès refusé aux données privées. Vérifier aussi le flux Realtime/WebSocket sur le domaine Cloudflare.
