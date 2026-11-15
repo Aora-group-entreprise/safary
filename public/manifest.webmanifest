@@ -1,0 +1,18 @@
+{
+  "name": "i-tafa",
+  "short_name": "i-tafa",
+  "description": "Reste connecté avec tes proches.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#08070a",
+  "theme_color": "#08070a",
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/Aora-group-entreprise/safary/main/FB_IMG_17947533283908349.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg",
+      "purpose": "any maskable"
+    }
+  ]
+}
