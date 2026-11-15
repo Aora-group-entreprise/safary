@@ -103,14 +103,14 @@ export default function App(){
    const people=otherIds.length?await client.from('profiles').select('id,username,display_name,avatar_url,bio').in('id',otherIds):{data:[],error:null};
    const signedPeople=await Promise.all((people.data??[]).map(async(p:any)=>{if(p.avatar_url&&!p.avatar_url.startsWith('http')){const signed=await client.storage.from('profile-media').createSignedUrl(p.avatar_url,3600);return {...p,avatar_url:signed.data?.signedUrl??null} as Profile}return p as Profile}));
    const byId=new Map(signedPeople.map((p:any)=>[p.id,p as Profile]));
-   const last=await client.from('messages').select('id,conversation_id,body,created_at,sender_id').in('conversation_id',ids).order('created_at',{ascending:false});
+   const last=await client.from('messages').select('id,conversation_id,body,created_at,sender_id').in('conversation_id',ids).order('created_at',{ascending:false}).limit(500);
    const latest=new Map<string,any>();
    for(const m of last.data??[])if(!latest.has(m.conversation_id))latest.set(m.conversation_id,m);
    const rows:ChatRow[]=[];
    for(const id of ids){const peer=(members.data??[]).find((m:any)=>m.conversation_id===id&&m.user_id!==uid);const p=peer?byId.get(peer.user_id):undefined;if(p){const m=latest.get(id);rows.push({id,user:p,lastMessage:m?.body??'Commencez à discuter',lastAt:m?.created_at??''})}}
    rows.sort((a,b)=>b.lastAt.localeCompare(a.lastAt));nextChats=rows;setChats(rows);
   }else{nextChats=[];setChats([])}
-  const active=await client.from('stories').select('id,user_id,storage_path,media_type,caption,created_at,expires_at').gt('expires_at',new Date().toISOString()).order('created_at',{ascending:false});
+  const active=await client.from('stories').select('id,user_id,storage_path,media_type,caption,created_at,expires_at').gt('expires_at',new Date().toISOString()).order('created_at',{ascending:false}).limit(100);
   if(active.error){notify(active.error.message);setStories([]);return}
   const raw=active.data??[];
   const storyUsers=[...new Set(raw.map((s:any)=>s.user_id as string))];
@@ -150,19 +150,19 @@ export default function App(){
  const loadMessages=useCallback(async(id:string)=>{
   if(!client)return;
   const cacheKey='messages:'+id;const cachedMessages=readCache<Message[]>(cacheKey,24*60*60*1000);if(cachedMessages)setMessages(cachedMessages);
-  const {data,error}=await client.from('messages').select('id,conversation_id,sender_id,body,message_type,created_at').eq('conversation_id',id).order('created_at',{ascending:true}).limit(300);
+  const {data,error}=await client.from('messages').select('id,conversation_id,sender_id,body,message_type,created_at').eq('conversation_id',id).order('created_at',{ascending:false}).limit(100);
   if(error){notify(error.message);return}
-  const allRows=(data??[]) as Message[];const ids=allRows.map(m=>m.id);
-  const [hiddenResult,reactionResult]=await Promise.all([client.from('message_user_hides').select('message_id').eq('user_id',user?.id??''),client.from('message_reactions').select('id,message_id,user_id,reaction').in('message_id',ids.length?ids:['00000000-0000-0000-0000-000000000000'])]);
+  const allRows=((data??[]) as Message[]).reverse();const ids=allRows.map(m=>m.id);
+  const [hiddenResult,reactionResult]=ids.length?await Promise.all([client.from('message_user_hides').select('message_id').eq('user_id',user?.id??'').in('message_id',ids),client.from('message_reactions').select('id,message_id,user_id,reaction').in('message_id',ids)]):[{data:[],error:null},{data:[],error:null}];
   const hidden=new Set((hiddenResult.data??[]).map((x:any)=>x.message_id));const rows=allRows.filter(m=>!hidden.has(m.id));
   const result=ids.length?await client.from('message_attachments').select('id,message_id,storage_path,file_name,mime_type,size_bytes').in('message_id',ids):{data:[],error:null};
   if(result.error)notify(result.error.message);
-  const byMessage=new Map<string,Attachment[]>();
-  for(const item of result.data??[]){
+  const downloadedAttachments=await Promise.all((result.data??[]).map(async(item:any)=>{
    let url=attachmentUrls.current.get(item.storage_path);
    if(!url){const downloaded=await client.storage.from('message-attachments').download(item.storage_path);if(downloaded.data){const audioBlob=item.mime_type.startsWith('audio/')?new Blob([downloaded.data],{type:item.mime_type}):downloaded.data;url=URL.createObjectURL(audioBlob);attachmentUrls.current.set(item.storage_path,url)}}
-   if(url){const list=byMessage.get(item.message_id)??[];list.push({...item,url} as Attachment);byMessage.set(item.message_id,list)}
-  }
+   return url?{...item,url} as Attachment:null;
+  }));
+  const byMessage=new Map<string,Attachment[]>();for(const attachment of downloadedAttachments){if(!attachment)continue;const list=byMessage.get(attachment.message_id)??[];list.push(attachment);byMessage.set(attachment.message_id,list)}
   const nextMessages=rows.map(m=>({...m,attachments:byMessage.get(m.id)??[],reactions:(reactionResult.data??[]).filter((x:any)=>x.message_id===m.id) as Reaction[]}));setMessages(nextMessages);writeCache(cacheKey,nextMessages.map(({attachments,...m})=>m));
  },[client,user]);
  const openChat=useCallback(async(row:ChatRow)=>{
