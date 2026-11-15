@@ -198,3 +198,21 @@
 @keyframes voicePulse{50%{opacity:.35;transform:scale(.8)}}
 @keyframes voiceWave{from{transform:scaleY(.35)}to{transform:scaleY(1)}}
 @media(max-width:420px){.voice-recording-bar{gap:6px;padding-left:10px;padding-right:10px}.voice-record-trash,.voice-record-pause,.voice-record-send{width:38px;flex-basis:38px}.voice-live-pill{padding:0 12px;gap:8px}.voice-live-pill time{font-size:14px}}
+
+
+/* Clean Facebook-inspired chat bubbles and attached reaction counters */
+.chat-messages{gap:14px;padding:18px 15px 22px}
+.message-row{display:flex;flex-direction:column;align-items:flex-start;gap:0;max-width:100%;width:fit-content}
+.message-row-incoming{align-self:flex-start}
+.message-row-outgoing{align-self:flex-end;align-items:flex-end}
+.bubble{width:fit-content;max-width:min(78vw,420px);min-width:42px;padding:13px 16px 8px;gap:5px;border-radius:21px;font-size:16px;line-height:1.42;box-shadow:none;overflow-wrap:anywhere}
+.bubble>span{font-size:16px;line-height:1.42;white-space:pre-wrap}
+.incoming{background:#29262e;color:#f7f5f8;border-radius:21px 21px 21px 6px}
+.outgoing{background:linear-gradient(135deg,#d414a5 0%,#9225d7 100%);color:#fff;border-radius:21px 21px 6px 21px}
+.bubble time{font-size:10px;line-height:1.2;color:rgba(255,255,255,.68);align-self:flex-end;margin-top:2px}
+.message-reaction-list{position:relative;z-index:1;display:flex;align-items:center;gap:0;margin-top:-3px;margin-left:12px;padding:3px 8px;min-height:27px;border-radius:16px;background:#19171d;border:1px solid #39343e;box-shadow:0 2px 5px #0005}
+.message-row-outgoing .message-reaction-list{align-self:flex-end;margin-left:0;margin-right:12px}
+.message-reaction-list span{display:inline-flex;align-items:center;gap:3px;padding:0 2px;border:0;background:transparent;color:#f3eff5;font-size:12px;line-height:18px}
+.attachment-preview{max-width:min(72vw,330px)}
+.attachment-preview img{display:block;width:100%;height:auto;max-height:360px;object-fit:cover;border-radius:12px}
+@media(max-width:600px){.chat-messages{padding-left:14px;padding-right:14px;gap:13px}.bubble{max-width:78vw;padding:13px 16px 8px}.bubble>span{font-size:16px}.message-reaction-list{min-height:26px}}
