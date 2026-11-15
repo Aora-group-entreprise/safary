@@ -383,12 +383,13 @@ export default function App(){
  const openProfile=async(person:Partial<Profile>)=>{
   if(!client||!person.id)return;
   if(person.id===user?.id){setViewedProfile(null);setScreen('profile');return}
+  const cached=readCache<Profile>('profile:'+person.id,45*60*1000);if(cached){setViewedProfile(cached);setScreen('profile')}
   const {data,error}=await client.from('profiles').select('id,username,display_name,avatar_url,bio,cover_url').eq('id',person.id).maybeSingle();
   if(error||!data){notify(error?.message??'Profil introuvable.');return}
   let avatar=data.avatar_url??'';let cover=data.cover_url??'';
   if(avatar&&!avatar.startsWith('http')){const signed=await client.storage.from('profile-media').createSignedUrl(avatar,3600);avatar=signed.data?.signedUrl??''}
   if(cover&&!cover.startsWith('http')){const signed=await client.storage.from('profile-media').createSignedUrl(cover,3600);cover=signed.data?.signedUrl??''}
-  setViewedProfile({...data,avatar_url:avatar,cover_url:cover} as Profile);setScreen('profile');
+  const resolved={...data,avatar_url:avatar,cover_url:cover} as Profile;setViewedProfile(resolved);writeCache('profile:'+person.id,resolved);setScreen('profile');
  };
  const showStory=(story:Story)=>{const index=stories.findIndex(item=>item.id===story.id);if(index>=0){setStoryIndex(index);setScreen('story-viewer')}};
   const clearLongPress=()=>{if(longPressTimer.current!==null){window.clearTimeout(longPressTimer.current);longPressTimer.current=null}};
