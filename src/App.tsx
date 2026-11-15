@@ -45,6 +45,9 @@ export default function App(){
  const [profileAvatarPreview,setProfileAvatarPreview]=useState('');
  const [profileCoverPreview,setProfileCoverPreview]=useState('');
  const [authMode,setAuthMode]=useState<'login'|'signup'>('login');
+ const [signupStep,setSignupStep]=useState(1);
+ const [signupAvatarPreview,setSignupAvatarPreview]=useState('');
+ const [signupCoverPreview,setSignupCoverPreview]=useState('');
  const [searchOpen,setSearchOpen]=useState(false);
  const [searchTerm,setSearchTerm]=useState('');
  const [searchResults,setSearchResults]=useState<Profile[]>([]);
@@ -200,6 +203,14 @@ export default function App(){
   await loadHome(user.id);await openChat({id,user:person,lastMessage:'',lastAt:''});
  };
 
+ const nextSignupStep=()=>{
+  setNotice('');
+  if(signupStep===1&&username.trim().length<3){notify('Choisis un pseudo de 3 caractères minimum.');return}
+  if(signupStep===2&&(password.length<10||password!==confirmPassword)){notify(password.length<10?'Le mot de passe doit contenir au moins 10 caractères.':'Les mots de passe ne correspondent pas.');return}
+  if(signupStep===3&&(!Number.isInteger(Number(age))||Number(age)<1||Number(age)>120)){notify('Indique un âge valide.');return}
+  setSignupStep(step=>Math.min(4,step+1));
+ };
+ const previousSignupStep=()=>{setNotice('');setSignupStep(step=>Math.max(1,step-1))};
  const submitAuth=async(e:FormEvent)=>{
   e.preventDefault();if(!client)return;setBusy(true);setNotice('');
   try{
@@ -284,20 +295,34 @@ export default function App(){
 
  return <main className="app-shell"><div className="ambient ambient-one"/><div className="ambient ambient-two"/><section className="phone-frame">
  {!isSupabaseConfigured&&<div className="setup-banner">Connexion SAFARY indisponible : vérifie la configuration Supabase.</div>}
- {(!session||!user||screen==='auth')&&<div className="auth-screen"><div className="auth-brand">SAFARY<span>Le lien qui nous rapproche.</span></div><form className="form-card" onSubmit={submitAuth}>
-  <h1>{authMode==='login'?'Bon retour':'Créer un compte'}</h1>
-  <label>Pseudo<input value={username} onChange={e=>setUsername(e.target.value)} placeholder="ex. rakoto" minLength={3} maxLength={30} autoComplete="username" required/></label>
-  <label>Mot de passe<input type="password" autoComplete={authMode==='login'?'current-password':'new-password'} value={password} onChange={e=>setPassword(e.target.value)} minLength={authMode==='login'?1:10} placeholder={authMode==='login'?'Ton mot de passe':'10 caractères minimum'} required/></label>
-  {authMode==='signup'&&<>
-   <label>Confirmer le mot de passe<input type="password" autoComplete="new-password" value={confirmPassword} onChange={e=>setConfirmPassword(e.target.value)} minLength={10} required/></label>
-   <label>Âge<input type="number" inputMode="numeric" min="1" max="120" value={age} onChange={e=>setAge(e.target.value)} required/></label>
-   <label>Photo de profil (PDP)<input type="file" accept="image/jpeg,image/png,image/webp" onChange={e=>setAvatarFile(e.target.files?.[0]??null)} required/></label>
-   <label>Photo de couverture (PDC)<input type="file" accept="image/jpeg,image/png,image/webp" onChange={e=>setCoverFile(e.target.files?.[0]??null)} required/></label>
-  </>}
-  <button className="gradient-button full-width" disabled={busy||!isSupabaseConfigured}>{busy?'Patiente…':authMode==='login'?'Se connecter':'Créer mon compte'}</button>
-  <button type="button" className="text-button" onClick={()=>{setAuthMode(authMode==='login'?'signup':'login');setPassword('');setConfirmPassword('');setNotice('')}}>{authMode==='login'?'Créer un compte':'J’ai déjà un compte'}</button>
-  {notice&&<p className="notice">{notice}</p>}
- </form><p className="auth-foot">Un espace social pensé pour se retrouver.</p></div>}
+ {(!session||!user||screen==='auth')&&<div className="auth-screen">
+  <div className="auth-brand">SAFARY<span>Le lien qui nous rapproche.</span></div>
+  {authMode==='signup'?<form className="form-card signup-card" onSubmit={e=>{e.preventDefault();if(signupStep===4)void submitAuth(e);else nextSignupStep()}}>
+   <div className="signup-heading"><span className="signup-eyebrow">REJOINS LA COMMUNAUTÉ</span><h1>Créer ton compte</h1><p>Quelques étapes simples pour commencer.</p></div>
+   <div className="signup-progress" aria-label={`Étape ${signupStep} sur 4`}>{[1,2,3,4].map(n=><span key={n} className={n<=signupStep?'completed':''}/>)}</div>
+   <div className="signup-step-caption"><span>ÉTAPE 0{signupStep} / 04</span><strong>{['Ton identité','Sécurise ton compte','Fais connaissance','Personnalise ton profil'][signupStep-1]}</strong></div>
+   {signupStep===1&&<div className="signup-step-content"><div className="signup-step-icon"><UserRound/></div><label>Nom d'utilisateur<input value={username} onChange={e=>setUsername(e.target.value)} placeholder="ex. rakoto" minLength={3} maxLength={30} autoComplete="username" autoFocus required/></label><small>Ton pseudo sera visible par les autres membres. Tu pourras le modifier plus tard.</small></div>}
+   {signupStep===2&&<div className="signup-step-content"><div className="signup-step-icon"><Settings/></div><label>Mot de passe<input type="password" autoComplete="new-password" value={password} onChange={e=>setPassword(e.target.value)} minLength={10} placeholder="10 caractères minimum" autoFocus required/></label><label>Confirme ton mot de passe<input type="password" autoComplete="new-password" value={confirmPassword} onChange={e=>setConfirmPassword(e.target.value)} minLength={10} placeholder="Répète ton mot de passe" required/></label><small>Utilise au moins 10 caractères et garde ton mot de passe confidentiel.</small></div>}
+   {signupStep===3&&<div className="signup-step-content"><div className="signup-step-icon"><UserRound/></div><label>Quel âge as-tu ?<input type="number" inputMode="numeric" min="1" max="120" value={age} onChange={e=>setAge(e.target.value)} placeholder="Ton âge" autoFocus required/></label><small>Cette information nous aide à adapter l'expérience SAFARY.</small></div>}
+   {signupStep===4&&<div className="signup-step-content signup-photo-step">
+    <p className="signup-photo-intro">Ajoute tes photos pour que tes amis puissent te reconnaître.</p>
+    <div className="signup-cover-preview" style={{backgroundImage:signupCoverPreview?`url("${signupCoverPreview}")`:undefined}}>{!signupCoverPreview&&<ImagePlus/>}<label>Photo de couverture (PDC)<input type="file" accept="image/jpeg,image/png,image/webp" onChange={async e=>{const f=e.target.files?.[0];if(f){setCoverFile(f);setSignupCoverPreview(await fileToDataUrl(f))}}}/></label></div>
+    <div className="signup-avatar-row"><div className="signup-avatar-preview">{signupAvatarPreview?<img src={signupAvatarPreview} alt="Aperçu de ta photo de profil"/>:<UserRound/>}</div><label>Photo de profil (PDP)<span>Format JPG, PNG ou WebP · 1,5 Mo max</span><input type="file" accept="image/jpeg,image/png,image/webp" onChange={async e=>{const f=e.target.files?.[0];if(f){setAvatarFile(f);setSignupAvatarPreview(await fileToDataUrl(f))}}}/></label></div>
+    <div className="signup-review"><strong>@{username}</strong><span>{age} ans · Ton compte est presque prêt</span></div>
+   </div>}
+   {notice&&<p className="notice signup-notice">{notice}</p>}
+   <div className="signup-actions">{signupStep>1&&<button type="button" className="signup-back" onClick={previousSignupStep}>Retour</button>}<button className="gradient-button signup-next" disabled={busy||!isSupabaseConfigured}>{busy?'Création…':signupStep===4?'Créer mon compte':'Continuer'}{signupStep!==4&&<ChevronRight size={18}/>}</button></div>
+   <button type="button" className="text-button signup-switch" onClick={()=>{setAuthMode('login');setSignupStep(1);setPassword('');setConfirmPassword('');setNotice('')}}>J’ai déjà un compte</button>
+  </form>:<form className="form-card login-card" onSubmit={submitAuth}>
+   <h1>Bon retour</h1><p className="login-subtitle">Connecte-toi pour retrouver ta communauté.</p>
+   <label>Pseudo<input value={username} onChange={e=>setUsername(e.target.value)} placeholder="ex. rakoto" minLength={3} maxLength={30} autoComplete="username" required/></label>
+   <label>Mot de passe<input type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Ton mot de passe" required/></label>
+   {notice&&<p className="notice">{notice}</p>}
+   <button className="gradient-button full-width" disabled={busy||!isSupabaseConfigured}>{busy?'Connexion…':'Se connecter'}</button>
+   <button type="button" className="text-button" onClick={()=>{setAuthMode('signup');setSignupStep(1);setPassword('');setConfirmPassword('');setNotice('')}}>Créer un compte</button>
+  </form>}
+  <p className="auth-foot">Un espace social pensé pour se retrouver.</p>
+ </div>}
  {session&&user&&screen!=='auth'&&<>
   {screen==='messages'&&<><header className="topbar"><div className="brand">SAFARY</div><div className="top-actions"><button aria-label="Rechercher un membre" onClick={()=>setSearchOpen(true)}><Search/></button><button aria-label="Nouvelle discussion" onClick={()=>setSearchOpen(true)}><PencilLine/></button></div></header>
    <section className="stories-section"><div className="section-heading"><h2>Stories</h2><button aria-label="Créer une story" onClick={()=>setScreen('create-story')}><Plus/></button></div><div className="stories-row"><button className="story-item" onClick={()=>setScreen('create-story')}><span className="story-ring own-story"><Avatar profile={profile} size="small"/><i>+</i></span><span>Votre story</span></button>{groupedStories.map(s=><button className="story-item" key={s.id} onClick={()=>void viewStory(stories.findIndex(x=>x.id===s.id))}><span className="story-ring"><Avatar profile={s.profile} size="small"/></span><span>{s.profile.username}</span></button>)}</div></section>
