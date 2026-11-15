@@ -229,10 +229,10 @@
 
 /* Logo de marque i-tafa : taille adaptée à chaque emplacement */
 .brand{display:flex;align-items:center;gap:10px}
-.brand img{width:30px;height:30px;object-fit:cover;border-radius:9px;flex:none}
+.brand img{width:30px;height:30px;object-fit:cover;border-radius:18%;flex:none}
 .topbar .brand{font-size:40px;letter-spacing:2px;line-height:1;gap:11px}
-.topbar .brand img{width:36px;height:36px;border-radius:10px}
+.topbar .brand img{width:36px;height:36px;border-radius:18%}
 .auth-brand .brand-line{display:flex;align-items:center;justify-content:center;gap:12px}
-.auth-brand .brand-line img{width:54px;height:54px;object-fit:cover;border-radius:15px;flex:none}
-.loading-state .brand img{width:42px;height:42px;border-radius:12px}
-@media(max-width:600px){.topbar .brand img{width:32px;height:32px;border-radius:9px}}
+.auth-brand .brand-line img{width:54px;height:54px;object-fit:cover;border-radius:18%;flex:none}
+.loading-state .brand img{width:42px;height:42px;border-radius:18%}
+@media(max-width:600px){.topbar .brand img{width:32px;height:32px;border-radius:18%}}
