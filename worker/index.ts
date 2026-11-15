@@ -29,11 +29,9 @@ export default {
     if (incoming.pathname === "/api/health") {
       return json({ ok: true, service: "safary-api", provider: "cloudflare-workers" });
     }
-
     if (!incoming.pathname.startsWith("/api/")) {
       return json({ error: "Route introuvable." }, 404);
     }
-
     if (!env.SUPABASE_URL) {
       return json({ error: "SUPABASE_URL is not configured." }, 503);
     }
@@ -55,18 +53,13 @@ export default {
     }
 
     const upstream = new URL(upstreamPath + incoming.search, upstreamBase.origin);
-    const headers = new Headers(request.headers);
-    headers.delete("host");
-
     try {
-      // Reuse the incoming request so method, body and WebSocket upgrade metadata survive.
-      const upstreamRequest = new Request(upstream.toString(), {
-        ...request,
-        headers,
-      });
+      // Clone the original request onto the fixed Supabase origin. This preserves
+      // request bodies and the Upgrade metadata required by Realtime WebSockets.
+      const upstreamRequest = new Request(upstream.toString(), request);
       const response = await fetch(upstreamRequest);
 
-      // A 101 response carries the upgraded WebSocket; do not wrap it in a new Response.
+      // Keep the upstream 101 response intact so its WebSocket is not discarded.
       if (response.status === 101) return response;
 
       const responseHeaders = new Headers(response.headers);
