@@ -265,7 +265,7 @@ export default function App(){
   e.preventDefault();if(chatFile){const sent=await uploadChatFile(chatFile,chatFile.type.startsWith('image/')?'image':'file');if(sent){setChatFile(null);setChatFilePreview('')}return}const body=draft.trim();if(!client||!user||!conversationId||!body)return;
   setDraft('');const {data,error}=await client.from('messages').insert({conversation_id:conversationId,sender_id:user.id,body,message_type:'text'}).select('id,conversation_id,sender_id,body,message_type,created_at').single();
   if(error){setDraft(body);notify(error.message);return}
-  setMessages(prev=>{const next=prev.some(m=>m.id===data.id)?prev:[...prev,data as Message];writeCache('messages:'+conversationId,next.map(({attachments,...m})=>m));return next});broadcastChatSync();
+  setMessages(prev=>{const next=prev.some(m=>m.id===data.id)?prev:[...prev,data as Message];writeCache('messages:'+conversationId,next.map(({attachments,...m})=>m));return next});broadcastChatSync();void loadHome(user.id);
  };
 
  const uploadChatFile=async(file:File,kind:'image'|'file'|'voice'='file')=>{
