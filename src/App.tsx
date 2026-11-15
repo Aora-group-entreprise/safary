@@ -162,7 +162,14 @@ export default function App(){
   if(result.error)notify(result.error.message);
   const downloadedAttachments=await Promise.all((result.data??[]).map(async(item:any)=>{
    let url=attachmentUrls.current.get(item.storage_path);
-   if(!url){const downloaded=await client.storage.from('message-attachments').download(item.storage_path);if(downloaded.data){const audioBlob=item.mime_type.startsWith('audio/')?new Blob([downloaded.data],{type:item.mime_type}):downloaded.data;url=URL.createObjectURL(audioBlob);attachmentUrls.current.set(item.storage_path,url)}}
+   if(!url){
+    let blob:Blob|null=null;
+    const cacheName='safary-media-v1-'+(user?.id??'guest');
+    const cacheKey=new Request(new URL('/__safary_media__/'+encodeURIComponent(item.storage_path),window.location.origin).toString());
+    try{if('caches' in window){const cache=await caches.open(cacheName);const hit=await cache.match(cacheKey);if(hit)blob=await hit.blob()}}catch{}
+    if(!blob){const downloaded=await client.storage.from('message-attachments').download(item.storage_path);if(downloaded.data){blob=downloaded.data;try{if('caches' in window){const cache=await caches.open(cacheName);await cache.put(cacheKey,new Response(blob,{headers:{'Content-Type':item.mime_type,'Cache-Control':'private, max-age=2592000'}}))}}catch{}}}
+    if(blob){const audioBlob=item.mime_type.startsWith('audio/')?new Blob([blob],{type:item.mime_type}):blob;url=URL.createObjectURL(audioBlob);attachmentUrls.current.set(item.storage_path,url)}
+   }
    return url?{...item,url} as Attachment:null;
   }));
   const byMessage=new Map<string,Attachment[]>();for(const attachment of downloadedAttachments){if(!attachment)continue;const list=byMessage.get(attachment.message_id)??[];list.push(attachment);byMessage.set(attachment.message_id,list)}
@@ -384,7 +391,7 @@ export default function App(){
   const {error}=await client.from('user_settings').update({...next,updated_at:new Date().toISOString()}).eq('user_id',user.id);
   if(error){setSettings(settings);notify(error.message)}
  };
- const signOut=async()=>{if(client){const {error}=await client.functions.invoke('safary-auth',{body:{action:'logout'}});if(error)notify(error.message);localStorage.removeItem('safary_session');Object.keys(localStorage).filter(k=>k.startsWith(CACHE_PREFIX)).forEach(k=>localStorage.removeItem(k));setScreen('auth');setSession(null);setUser(null);setProfile(null);setChats([]);setStories([]);setMessages([])}};
+ const signOut=async()=>{if(client){const currentUserId=user?.id;const {error}=await client.functions.invoke('safary-auth',{body:{action:'logout'}});if(error)notify(error.message);localStorage.removeItem('safary_session');Object.keys(localStorage).filter(k=>k.startsWith(CACHE_PREFIX)).forEach(k=>localStorage.removeItem(k));if(currentUserId&&'caches' in window)await caches.delete('safary-media-v1-'+currentUserId);setScreen('auth');setSession(null);setUser(null);setProfile(null);setChats([]);setStories([]);setMessages([])}};
 
  const groupedStories=useMemo(()=>{const map=new Map<string,Story[]>();for(const s of stories){const list=map.get(s.user_id)??[];list.push(s);map.set(s.user_id,list)}return [...map.values()].map(items=>items[0])},[stories]);
  const activeStory=stories[storyIndex];
