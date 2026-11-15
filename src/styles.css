@@ -180,3 +180,21 @@
 .message-reaction-list{display:flex;gap:5px;flex-wrap:wrap;margin-top:2px}
 .message-reaction-list span{font-size:11px;padding:3px 7px;border-radius:12px;background:#16131a;border:1px solid #ffffff22}
 @media(max-width:600px){.bubble{max-width:86%;font-size:17px}.bubble>span{font-size:17px}.message-action-backdrop{padding-bottom:calc(18px + env(safe-area-inset-bottom))}.voice-draft-panel{padding-bottom:max(12px,env(safe-area-inset-bottom))}}
+
+
+/* Live voice capture controls — replaces the text composer while recording */
+.voice-recording-bar{display:flex;align-items:center;gap:10px;padding:12px 16px max(14px,env(safe-area-inset-bottom));border-top:1px solid #343039;background:#222126;min-height:88px}
+.voice-record-trash,.voice-record-pause,.voice-record-send{width:42px;height:42px;flex:0 0 42px;display:grid;place-items:center;background:transparent;color:#b9bdc7}
+.voice-record-trash:active,.voice-record-pause:active,.voice-record-send:active{transform:scale(.94)}
+.voice-live-pill{height:66px;min-width:0;flex:1;display:flex;align-items:center;gap:11px;padding:0 17px;border-radius:36px;background:#0866f5;color:white;box-shadow:0 3px 14px #0866f544}
+.voice-live-dot{width:8px;height:8px;flex:0 0 8px;border-radius:50%;background:white;box-shadow:0 0 0 5px #ffffff30;animation:voicePulse 1.1s ease-in-out infinite}
+.voice-live-wave{min-width:0;flex:1;height:42px;display:flex;align-items:center;justify-content:center;gap:3px;overflow:hidden}
+.voice-live-wave i{display:block;width:3px;min-width:2px;max-height:32px;border-radius:5px;background:#fff;opacity:.95;animation:voiceWave .65s ease-in-out infinite alternate}
+.voice-live-wave i:nth-child(3n){animation-duration:.48s}
+.voice-live-wave i:nth-child(4n){animation-duration:.82s}
+.voice-live-pill time{font-size:15px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+.voice-record-pause{color:#1678ff;font-size:28px;font-weight:800;line-height:1}
+.voice-record-send{color:#1678ff}
+@keyframes voicePulse{50%{opacity:.35;transform:scale(.8)}}
+@keyframes voiceWave{from{transform:scaleY(.35)}to{transform:scaleY(1)}}
+@media(max-width:420px){.voice-recording-bar{gap:6px;padding-left:10px;padding-right:10px}.voice-record-trash,.voice-record-pause,.voice-record-send{width:38px;flex-basis:38px}.voice-live-pill{padding:0 12px;gap:8px}.voice-live-pill time{font-size:14px}}
