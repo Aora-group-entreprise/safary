@@ -15,9 +15,10 @@ type Reaction={id:string;message_id:string;user_id:string;reaction:string};
 type Message={id:string;conversation_id:string;sender_id:string;body:string;message_type:string;created_at:string;attachments?:Attachment[];reactions?:Reaction[];seenByPeer?:boolean};
 const MIME_TYPES=['image/jpeg','image/png','image/webp','image/gif','video/mp4','video/webm','video/quicktime'];
 const MAX_FILE=50*1024*1024;
-const CACHE_VERSION=1;
+const CACHE_VERSION=2;
+const DATA_CACHE_TTL_MS=12*60*60*1000;
 const CACHE_PREFIX='safary:cache:v1:';
-const readCache=<T,>(key:string,maxAgeMs=30*60*1000):T|null=>{try{const raw=localStorage.getItem(CACHE_PREFIX+key);if(!raw)return null;const value=JSON.parse(raw);if(value.version!==CACHE_VERSION||Date.now()-value.savedAt>maxAgeMs){localStorage.removeItem(CACHE_PREFIX+key);return null}return value.data as T}catch{return null}};
+const readCache=<T,>(key:string,maxAgeMs=DATA_CACHE_TTL_MS):T|null=>{try{const raw=localStorage.getItem(CACHE_PREFIX+key);if(!raw)return null;const value=JSON.parse(raw);if(value.version!==CACHE_VERSION||Date.now()-value.savedAt>maxAgeMs){localStorage.removeItem(CACHE_PREFIX+key);return null}return value.data as T}catch{return null}};
 const writeCache=(key:string,data:unknown)=>{try{localStorage.setItem(CACHE_PREFIX+key,JSON.stringify({version:CACHE_VERSION,savedAt:Date.now(),data}))}catch{try{Object.keys(localStorage).filter(k=>k.startsWith(CACHE_PREFIX)).slice(0,3).forEach(k=>localStorage.removeItem(k));localStorage.setItem(CACHE_PREFIX+key,JSON.stringify({version:CACHE_VERSION,savedAt:Date.now(),data}))}catch{}}};
 const CHAT_FILE_TYPES=['image/jpeg','image/png','image/webp','image/gif','application/pdf','text/plain','audio/webm','audio/ogg','audio/mp4','audio/mpeg','audio/wav'];
 const initials=(value:string)=>value.trim().split(/\s+/).slice(0,2).map(x=>x[0]?.toUpperCase()??'').join('')||'S';
@@ -88,17 +89,17 @@ export default function App(){
  const notify=(message:string)=>setNotice(message);
  const loadProfile=useCallback(async(uid:string)=>{
   if(!client)return;
-  const cached=readCache<Profile>('profile:'+uid,45*60*1000);if(cached){setProfile(cached);setDisplayName(cached.display_name??'');setUsername(cached.username??'');setBio(cached.bio??'')}
+  const cached=readCache<Profile>('profile:'+uid);if(cached){setProfile(cached);setDisplayName(cached.display_name??'');setUsername(cached.username??'');setBio(cached.bio??'')}
   const {data,error}=await client.from('profiles').select('id,username,display_name,avatar_url,bio,cover_url').eq('id',uid).maybeSingle();
   if(error){notify(error.message);return}
-  if(data){let resolvedAvatar=data.avatar_url??'';let resolvedCover=data.cover_url??'';if(resolvedAvatar&&!resolvedAvatar.startsWith('http')){const signed=await client.storage.from('profile-media').createSignedUrl(resolvedAvatar,3600);resolvedAvatar=signed.data?.signedUrl??'';}if(resolvedCover&&!resolvedCover.startsWith('http')){const signed=await client.storage.from('profile-media').createSignedUrl(resolvedCover,3600);resolvedCover=signed.data?.signedUrl??'';}const p={...data,avatar_url:resolvedAvatar,cover_url:resolvedCover} as Profile;setProfile(p);writeCache('profile:'+uid,p);setDisplayName(p.display_name??'');setUsername(p.username??'');setBio(p.bio??'')}
+  if(data){let resolvedAvatar=data.avatar_url??'';let resolvedCover=data.cover_url??'';if(resolvedAvatar&&!resolvedAvatar.startsWith('http')){const signed=await client.storage.from('profile-media').createSignedUrl(resolvedAvatar,46800);resolvedAvatar=signed.data?.signedUrl??'';}if(resolvedCover&&!resolvedCover.startsWith('http')){const signed=await client.storage.from('profile-media').createSignedUrl(resolvedCover,46800);resolvedCover=signed.data?.signedUrl??'';}const p={...data,avatar_url:resolvedAvatar,cover_url:resolvedCover} as Profile;setProfile(p);writeCache('profile:'+uid,p);setDisplayName(p.display_name??'');setUsername(p.username??'');setBio(p.bio??'')}
   const pref=await client.from('user_settings').select('online_status_visible,notifications_enabled').eq('user_id',uid).maybeSingle();
   if(pref.data)setSettings(pref.data);
  },[client]);
 
  const loadHome=useCallback(async(uid:string)=>{
   if(!client)return;
-  const cachedHome=readCache<{chats:ChatRow[];stories:Story[]}>('home:'+uid,45*60*1000);if(cachedHome){setChats(cachedHome.chats);setStories(cachedHome.stories.filter(story=>new Date(story.expires_at).getTime()>Date.now()))}
+  const cachedHome=readCache<{chats:ChatRow[];stories:Story[]}>('home:'+uid);if(cachedHome){setChats(cachedHome.chats);setStories(cachedHome.stories.filter(story=>new Date(story.expires_at).getTime()>Date.now()))}
   let nextChats:ChatRow[]=[];
   const [own,active]=await Promise.all([
    client.from('conversation_members').select('conversation_id').eq('user_id',uid),
@@ -111,7 +112,7 @@ export default function App(){
    if(members.error)notify(members.error.message);
    const otherIds=[...new Set((members.data??[]).map((x:any)=>x.user_id as string).filter((x:string)=>x!==uid))];
    const people=otherIds.length?await client.from('profiles').select('id,username,display_name,avatar_url,bio').in('id',otherIds):{data:[],error:null};
-   const signedPeople=await Promise.all((people.data??[]).map(async(p:any)=>{if(p.avatar_url&&!p.avatar_url.startsWith('http')){const signed=await client.storage.from('profile-media').createSignedUrl(p.avatar_url,3600);return {...p,avatar_url:signed.data?.signedUrl??null} as Profile}return p as Profile}));
+   const signedPeople=await Promise.all((people.data??[]).map(async(p:any)=>{if(p.avatar_url&&!p.avatar_url.startsWith('http')){const signed=await client.storage.from('profile-media').createSignedUrl(p.avatar_url,46800);return {...p,avatar_url:signed.data?.signedUrl??null} as Profile}return p as Profile}));
    const byId=new Map(signedPeople.map((p:any)=>[p.id,p as Profile]));
    const last=await client.from('messages').select('id,conversation_id,body,created_at,sender_id').in('conversation_id',ids).order('created_at',{ascending:false}).limit(500);
    const latest=new Map<string,any>();
@@ -124,10 +125,10 @@ export default function App(){
   const raw=active.data??[];
   const storyUsers=[...new Set(raw.map((s:any)=>s.user_id as string))];
   const people=storyUsers.length?await client.from('profiles').select('id,username,display_name,avatar_url,bio').in('id',storyUsers):{data:[],error:null};
-  const signedPeople=await Promise.all((people.data??[]).map(async(p:any)=>{if(p.avatar_url&&!p.avatar_url.startsWith('http')){const signed=await client.storage.from('profile-media').createSignedUrl(p.avatar_url,3600);return {...p,avatar_url:signed.data?.signedUrl??null} as Profile}return p as Profile}));
+  const signedPeople=await Promise.all((people.data??[]).map(async(p:any)=>{if(p.avatar_url&&!p.avatar_url.startsWith('http')){const signed=await client.storage.from('profile-media').createSignedUrl(p.avatar_url,46800);return {...p,avatar_url:signed.data?.signedUrl??null} as Profile}return p as Profile}));
   const profileMap=new Map(signedPeople.map((p:any)=>[p.id,p as Profile]));
   const resolved=await Promise.all(raw.map(async(s:any)=>{
-   const {data}=await client.storage.from('stories').createSignedUrl(s.storage_path,3600);
+   const {data}=await client.storage.from('stories').createSignedUrl(s.storage_path,46800);
    const p=profileMap.get(s.user_id);return p&&data?.signedUrl?{...s,url:data.signedUrl,profile:p} as Story:null;
   }));
   const nextStories=resolved.filter(Boolean) as Story[];setStories(nextStories);writeCache('home:'+uid,{chats:nextChats,stories:nextStories});
@@ -158,7 +159,7 @@ export default function App(){
 
  const loadMessages=useCallback(async(id:string)=>{
   if(!client||!user)return;
-  const cacheKey='messages:'+id;const cachedMessages=readCache<Message[]>(cacheKey,24*60*60*1000);if(cachedMessages)setMessages(cachedMessages);
+  const cacheKey='messages:'+id;const cachedMessages=readCache<Message[]>(cacheKey);if(cachedMessages)setMessages(cachedMessages);
   const {data,error}=await client.from('messages').select('id,conversation_id,sender_id,body,message_type,created_at').eq('conversation_id',id).order('created_at',{ascending:false}).limit(100);
   if(error){notify(error.message);return}
   const allRows=((data??[]) as Message[]).reverse();const ids=allRows.map(m=>m.id);
@@ -175,8 +176,8 @@ export default function App(){
     let blob:Blob|null=null;
     const cacheName='safary-media-v1-'+(user?.id??'guest');
     const cacheKey=new Request(new URL('/__safary_media__/'+encodeURIComponent(item.storage_path),window.location.origin).toString());
-    try{if('caches' in window){const cache=await caches.open(cacheName);const hit=await cache.match(cacheKey);if(hit)blob=await hit.blob()}}catch{}
-    if(!blob){const downloaded=await client.storage.from('message-attachments').download(item.storage_path);if(downloaded.data){blob=downloaded.data;try{if('caches' in window){const cache=await caches.open(cacheName);await cache.put(cacheKey,new Response(blob,{headers:{'Content-Type':item.mime_type,'Cache-Control':'private, max-age=2592000'}}))}}catch{}}}
+    try{if('caches' in window){const cache=await caches.open(cacheName);const hit=await cache.match(cacheKey);if(hit){const cachedAt=Number(hit.headers.get('x-safary-cached-at')||0);if(cachedAt>0&&Date.now()-cachedAt<=DATA_CACHE_TTL_MS)blob=await hit.blob();else await cache.delete(cacheKey)}}}catch{}
+    if(!blob){const downloaded=await client.storage.from('message-attachments').download(item.storage_path);if(downloaded.data){blob=downloaded.data;try{if('caches' in window){const cache=await caches.open(cacheName);await cache.put(cacheKey,new Response(blob,{headers:{'Content-Type':item.mime_type,'Cache-Control':'private, max-age=43200','x-safary-cached-at':String(Date.now())}}))}}catch{}}}
     if(blob){const audioBlob=item.mime_type.startsWith('audio/')?new Blob([blob],{type:item.mime_type}):blob;url=URL.createObjectURL(audioBlob);attachmentUrls.current.set(item.storage_path,url)}
    }
    return url?{...item,url} as Attachment:null;
@@ -315,12 +316,12 @@ export default function App(){
   if(searchTimer.current!==null)window.clearTimeout(searchTimer.current);
   if(!client||term.trim().length<2){setSearchResults([]);return}
   const normalized=term.trim().toLowerCase();
-  const cached=readCache<Profile[]>('search:'+normalized,5*60*1000);if(cached)setSearchResults(cached);
+  const cached=readCache<Profile[]>('search:'+normalized);if(cached)setSearchResults(cached);
   searchTimer.current=window.setTimeout(()=>{void (async()=>{
    const {data,error}=await client.from('profiles').select('id,username,display_name,avatar_url,bio').ilike('username','%'+normalized.replace(/[%_]/g,'')+'%').neq('id',user?.id??'').limit(12);
    if(sequence!==searchSequence.current)return;
    if(error){notify(error.message);return}
-   const resolved=await Promise.all((data??[]).map(async(p:any)=>{if(p.avatar_url&&!p.avatar_url.startsWith('http')){const signed=await client.storage.from('profile-media').createSignedUrl(p.avatar_url,3600);return {...p,avatar_url:signed.data?.signedUrl??null} as Profile}return p as Profile}));
+   const resolved=await Promise.all((data??[]).map(async(p:any)=>{if(p.avatar_url&&!p.avatar_url.startsWith('http')){const signed=await client.storage.from('profile-media').createSignedUrl(p.avatar_url,46800);return {...p,avatar_url:signed.data?.signedUrl??null} as Profile}return p as Profile}));
    if(sequence===searchSequence.current){setSearchResults(resolved);writeCache('search:'+normalized,resolved)}
   })()},220);
  };
@@ -383,12 +384,12 @@ export default function App(){
  const openProfile=async(person:Partial<Profile>)=>{
   if(!client||!person.id)return;
   if(person.id===user?.id){setViewedProfile(null);setScreen('profile');return}
-  const cached=readCache<Profile>('profile:'+person.id,45*60*1000);if(cached){setViewedProfile(cached);setScreen('profile')}
+  const cached=readCache<Profile>('profile:'+person.id);if(cached){setViewedProfile(cached);setScreen('profile')}
   const {data,error}=await client.from('profiles').select('id,username,display_name,avatar_url,bio,cover_url').eq('id',person.id).maybeSingle();
   if(error||!data){notify(error?.message??'Profil introuvable.');return}
   let avatar=data.avatar_url??'';let cover=data.cover_url??'';
-  if(avatar&&!avatar.startsWith('http')){const signed=await client.storage.from('profile-media').createSignedUrl(avatar,3600);avatar=signed.data?.signedUrl??''}
-  if(cover&&!cover.startsWith('http')){const signed=await client.storage.from('profile-media').createSignedUrl(cover,3600);cover=signed.data?.signedUrl??''}
+  if(avatar&&!avatar.startsWith('http')){const signed=await client.storage.from('profile-media').createSignedUrl(avatar,46800);avatar=signed.data?.signedUrl??''}
+  if(cover&&!cover.startsWith('http')){const signed=await client.storage.from('profile-media').createSignedUrl(cover,46800);cover=signed.data?.signedUrl??''}
   const resolved={...data,avatar_url:avatar,cover_url:cover} as Profile;setViewedProfile(resolved);writeCache('profile:'+person.id,resolved);setScreen('profile');
  };
  const showStory=(story:Story)=>{const index=stories.findIndex(item=>item.id===story.id);if(index>=0){setStoryIndex(index);setScreen('story-viewer')}};
