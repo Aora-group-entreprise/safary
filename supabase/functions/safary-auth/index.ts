@@ -162,13 +162,36 @@ Deno.serve(async (req: Request) => {
       const displayName = String(body.displayName ?? auth.account.display_name).trim().slice(0, 60);
       const bio = String(body.bio ?? auth.account.bio ?? "").trim().slice(0, 160);
       if (!/^[a-z0-9_.]{3,30}$/.test(normalized)) return json(400, { error: "Pseudo invalide." });
-      const { data, error } = await db.from("safary_accounts").update({ username, display_name: displayName || username, bio, updated_at: new Date().toISOString() }).eq("id", auth.account.id).select("id,username,display_name,age,bio,avatar_path,cover_path").single();
+
+      const updates: Record<string, unknown> = {
+        username, display_name: displayName || username, bio, updated_at: new Date().toISOString(),
+      };
+      const oldPaths: string[] = [];
+      for (const field of ["avatar", "cover"] as const) {
+        const value = body[field + "DataUrl"];
+        if (value === undefined) continue;
+        const image = parseImage(value);
+        const oldPath = auth.account[field + "_path"] as string;
+        const nextPath = auth.account.id + "/" + field + "." + image.extension;
+        const uploaded = await db.storage.from("profile-media").upload(nextPath, image.bytes, {
+          contentType: image.contentType, upsert: true,
+        });
+        if (uploaded.error) throw uploaded.error;
+        updates[field + "_path"] = nextPath;
+        if (oldPath && oldPath !== nextPath) oldPaths.push(oldPath);
+      }
+      const { data, error } = await db.from("safary_accounts").update(updates).eq("id", auth.account.id)
+        .select("id,username,display_name,age,bio,avatar_path,cover_path").single();
       if (error?.code === "23505") return json(409, { error: "Ce pseudo est déjà utilisé." });
       if (error) throw error;
       const profileUpdate = await db.from("profiles").update({
-        username, display_name: displayName || username, bio, updated_at: new Date().toISOString(),
+        username, display_name: displayName || username, bio,
+        ...(updates.avatar_path ? { avatar_url: updates.avatar_path } : {}),
+        ...(updates.cover_path ? { cover_url: updates.cover_path } : {}),
+        updated_at: new Date().toISOString(),
       }).eq("id", auth.account.id);
       if (profileUpdate.error) throw profileUpdate.error;
+      if (oldPaths.length) await db.storage.from("profile-media").remove(oldPaths);
       return json(200, { account: await signedAccount(data) });
     }
     return json(400, { error: "Action inconnue." });
