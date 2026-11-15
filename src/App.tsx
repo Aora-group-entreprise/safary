@@ -65,6 +65,8 @@ export default function App(){
  const [searchOpen,setSearchOpen]=useState(false);
  const [searchTerm,setSearchTerm]=useState('');
  const [searchResults,setSearchResults]=useState<Profile[]>([]);
+ const searchTimer=useRef<number|null>(null);
+ const searchSequence=useRef(0);
  const [settings,setSettings]=useState({online_status_visible:true,notifications_enabled:true});
  const [busy,setBusy]=useState(false);
  const [notice,setNotice]=useState('');
@@ -98,7 +100,10 @@ export default function App(){
   if(!client)return;
   const cachedHome=readCache<{chats:ChatRow[];stories:Story[]}>('home:'+uid,45*60*1000);if(cachedHome){setChats(cachedHome.chats);setStories(cachedHome.stories.filter(story=>new Date(story.expires_at).getTime()>Date.now()))}
   let nextChats:ChatRow[]=[];
-  const own=await client.from('conversation_members').select('conversation_id').eq('user_id',uid);
+  const [own,active]=await Promise.all([
+   client.from('conversation_members').select('conversation_id').eq('user_id',uid),
+   client.from('stories').select('id,user_id,storage_path,media_type,caption,created_at,expires_at').gt('expires_at',new Date().toISOString()).order('created_at',{ascending:false}).limit(100)
+  ]);
   if(own.error){notify(own.error.message);return}
   const ids=[...new Set((own.data??[]).map((x:any)=>x.conversation_id as string))];
   if(ids.length){
@@ -115,7 +120,6 @@ export default function App(){
    for(const id of ids){const peer=(members.data??[]).find((m:any)=>m.conversation_id===id&&m.user_id!==uid);const p=peer?byId.get(peer.user_id):undefined;if(p){const m=latest.get(id);rows.push({id,user:p,lastMessage:m?.body??'Commencez à discuter',lastAt:m?.created_at??''})}}
    rows.sort((a,b)=>b.lastAt.localeCompare(a.lastAt));nextChats=rows;setChats(rows);
   }else{nextChats=[];setChats([])}
-  const active=await client.from('stories').select('id,user_id,storage_path,media_type,caption,created_at,expires_at').gt('expires_at',new Date().toISOString()).order('created_at',{ascending:false}).limit(100);
   if(active.error){notify(active.error.message);setStories([]);return}
   const raw=active.data??[];
   const storyUsers=[...new Set(raw.map((s:any)=>s.user_id as string))];
@@ -307,12 +311,18 @@ export default function App(){
   }catch(error){notify(error instanceof Error?error.message:'Impossible d’accéder au microphone.')}
  };
  const searchPeople=async(term:string)=>{
-  setSearchTerm(term);if(!client||term.trim().length<2){setSearchResults([]);return}
-  const {data,error}=await client.from('profiles').select('id,username,display_name,avatar_url,bio').ilike('username','%'+term.trim().replace(/[%_]/g,'')+'%').neq('id',user?.id??'').limit(12);
-  if(error)notify(error.message);else{
+  setSearchTerm(term);const sequence=++searchSequence.current;
+  if(searchTimer.current!==null)window.clearTimeout(searchTimer.current);
+  if(!client||term.trim().length<2){setSearchResults([]);return}
+  const normalized=term.trim().toLowerCase();
+  const cached=readCache<Profile[]>('search:'+normalized,5*60*1000);if(cached)setSearchResults(cached);
+  searchTimer.current=window.setTimeout(()=>{void (async()=>{
+   const {data,error}=await client.from('profiles').select('id,username,display_name,avatar_url,bio').ilike('username','%'+normalized.replace(/[%_]/g,'')+'%').neq('id',user?.id??'').limit(12);
+   if(sequence!==searchSequence.current)return;
+   if(error){notify(error.message);return}
    const resolved=await Promise.all((data??[]).map(async(p:any)=>{if(p.avatar_url&&!p.avatar_url.startsWith('http')){const signed=await client.storage.from('profile-media').createSignedUrl(p.avatar_url,3600);return {...p,avatar_url:signed.data?.signedUrl??null} as Profile}return p as Profile}));
-   setSearchResults(resolved);
-  }
+   if(sequence===searchSequence.current){setSearchResults(resolved);writeCache('search:'+normalized,resolved)}
+  })()},220);
  };
  const startConversation=async(person:Profile)=>{
   if(!client||!user)return;setBusy(true);
