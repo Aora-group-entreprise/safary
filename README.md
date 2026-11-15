@@ -1,63 +1,78 @@
-# SAFARY V1
+# i-tafa V1
 
-Réseau social SAFARY — les 7 écrans convenus : Messages, Discussion, Création de Story, Profil, Paramètres, Authentification et Visualisation de Story.
+Application sociale i-tafa : Messages, discussions privées, Stories, profils, paramètres et authentification.
 
 ## Stack
 
 - React 18, TypeScript et Vite
-- Cloudflare Workers + Static Assets pour servir le site et le proxy API sur le même domaine
-- Supabase PostgreSQL, Storage, Edge Functions et Realtime
-- GitHub Actions pour le déploiement automatique depuis `main`
+- Cloudflare Workers + Static Assets
+- Cloudflare Durable Objects et WebSockets pour la messagerie temps réel, la synchronisation des boîtes de réception et la présence
+- Supabase PostgreSQL, Storage et Edge Functions
+- GitHub Actions pour la validation et le déploiement depuis `main`
 
-## Architecture de production
+Supabase Realtime n'est pas utilisé pour la messagerie : le temps réel applicatif est géré par le Worker Cloudflare.
 
-Le navigateur utilise exclusivement le même domaine pour le site et les services Supabase :
+## Architecture
 
 - `/` — application React
-- `/api/health` — état du Worker SAFARY
+- `/api/health` — état du Worker
 - `/api/rest/v1/*` — PostgreSQL / PostgREST
 - `/api/storage/v1/*` — Supabase Storage
 - `/api/functions/v1/*` — Supabase Edge Functions
-- `/api/realtime/v1/*` — Supabase Realtime (y compris WebSocket)
+- `/realtime/chat/:conversationId` — WebSocket d'une conversation
+- `/realtime/inbox/:userId` — événements de boîte de réception et présence des contacts
+- `/realtime/presence/:userId` — présence et heartbeat
 
-Le Worker ne contient aucune clé `service_role`. Il transmet la clé publique envoyée par le client et laisse les contrôles RLS de Supabase appliquer les autorisations. Les clés privées restent exclusivement côté serveur Supabase.
+Le Worker ne contient aucune clé `service_role`. Les opérations privilégiées restent côté Edge Functions Supabase. L'application utilise des sessions i-tafa personnalisées et les politiques RLS correspondantes.
+
+## Fonctions actuellement présentes
+
+- Inscription en quatre étapes et connexion par pseudo/mot de passe
+- Profils avec photo de profil, couverture et biographie
+- Recherche de membres et conversations directes
+- Messages texte, fichiers, images et vocaux
+- Réactions, suppression pour soi/pour tous et confirmations de lecture
+- Stories photo/vidéo de 48 heures, enregistrement des vues et liste des visiteurs pour le propriétaire
+- Présence en ligne avec heartbeat et expiration de présence après perte de connexion
+- Préférences de présence et notifications du navigateur lorsque l'application reste ouverte en arrière-plan
+
+Les notifications du navigateur ne sont pas des notifications push garanties lorsque l'application est totalement fermée. Les notifications push en arrière-plan/fermée nécessitent un service push et des clés VAPID configurées.
 
 ## Déploiement Cloudflare
 
 1. Créer ou sélectionner un compte Cloudflare.
-2. Créer un API Token Cloudflare avec le modèle **Edit Cloudflare Workers**, limité au compte qui hébergera SAFARY. La création du Worker peut demander les droits d'administration Workers sur le compte ; un déploiement ultérieur d'un Worker déjà créé requiert le rôle Editor. Pour rattacher un domaine personnalisé par API, ajouter aussi Workers Routes Write sur la zone concernée.
-3. Dans GitHub > Settings > Secrets and variables > Actions, ajouter :
-   - `CLOUDFLARE_API_TOKEN` — le token Cloudflare (ne jamais le mettre dans le code).
-   - `CLOUDFLARE_ACCOUNT_ID` — l'identifiant du compte Cloudflare.
-4. Vérifier que le dépôt utilise la branche `main`.
-5. Chaque push sur `main` lance le workflow `.github/workflows/cloudflare-deploy.yml`.
-6. Le workflow valide le build, installe les dépendances, construit `dist/` puis exécute `wrangler deploy`.
-7. Dans Cloudflare, rattacher le domaine personnalisé au Worker `safary` après le premier déploiement.
+2. Créer un API Token avec les droits nécessaires pour déployer Workers.
+3. Dans GitHub > Settings > Secrets and variables > Actions, configurer :
+   - `CLOUDFLARE_API_TOKEN`
+   - `CLOUDFLARE_ACCOUNT_ID`
+4. Vérifier que la branche cible est `main`.
+5. Chaque push lance la validation et le workflow de déploiement.
+6. Le workflow construit `dist/` et exécute Wrangler.
 
-Le projet Cloudflare est configuré dans `wrangler.jsonc`. L'URL Supabase non secrète y est déclarée dans `vars.SUPABASE_URL`. Aucun secret Supabase n'est requis par le proxy.
+Le dernier échec de déploiement connu venait de la vérification des identifiants Cloudflare. Le succès du build ne prouve pas que le Worker a été déployé.
 
 ## Développement local
 
 1. Installer Node.js 22 ou plus récent.
 2. Exécuter `npm install`.
-3. Copier `.env.example` vers `.env` et renseigner la clé publique Supabase si elle doit être remplacée.
+3. Copier `.env.example` vers `.env` et renseigner la clé publique Supabase si nécessaire.
 4. Lancer `npm run dev`.
 
-Vite proxifie localement `/api/*` vers le projet Supabase. Pour tester le Worker et les assets ensemble, exécuter `npm run dev:worker`.
+Pour tester Worker et assets ensemble, exécuter `npm run dev:worker`.
 
 ## Commandes
 
-- `npm run typecheck` — vérification TypeScript de l'application.
-- `npm run build` — build de production.
-- `npm run dev:worker` — build puis lancement local Wrangler.
-- `npm run deploy` — build puis déploiement Cloudflare.
+- `npm run typecheck` — vérification TypeScript
+- `npm run build` — build de production
+- `npm run dev:worker` — lancement local Wrangler
+- `npm run deploy` — build puis déploiement Cloudflare
 
 ## Backend Supabase
 
-Les migrations versionnées dans `supabase/migrations` sont déjà appliquées au projet SAFARY. Les tables principales incluent les comptes, sessions, profils, conversations, membres, messages, pièces jointes, Stories, vues et préférences. Les politiques RLS sont activées.
+Les migrations du dossier `supabase/migrations` décrivent le schéma, les politiques RLS, l'authentification personnalisée, le nettoyage des Stories et les confirmations de lecture. Les fonctions Edge actives sont `safary-auth` et `cleanup-expired-stories`.
 
-Les fonctions Edge actives sont `safary-auth` et `cleanup-expired-stories`. Le nettoyage des Stories expirées est planifié côté Supabase. L'authentification SAFARY utilise ses sessions applicatives personnalisées ; aucune clé privilégiée ne doit être exposée au navigateur.
+La migration `0019_idempotent_direct_conversations.sql` fait en sorte qu'une nouvelle discussion avec un membre réutilise la conversation directe existante au lieu d'en créer une deuxième.
 
 ## Vérifications avant ouverture
 
-Le déploiement de l'infrastructure ne signifie pas que les tests fonctionnels sont terminés. Avant toute ouverture publique, tester sur deux comptes et deux appareils : inscription, reconnexion après rechargement, profil, recherche, conversation, messages, fichiers, Stories, expiration, déconnexion et accès refusé aux données privées. Vérifier aussi le flux Realtime/WebSocket sur le domaine Cloudflare.
+Le build ne remplace pas les tests fonctionnels. Tester avec deux comptes et deux appareils : inscription, reconnexion, édition de profil, recherche, création/réouverture de conversation, messages, pièces jointes, vocaux, réactions, confirmations « Vu », Stories, vues, suppression, présence après coupure réseau et paramètres. Vérifier les autorisations RLS et l'accès aux médias privés.
