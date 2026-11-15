@@ -41,33 +41,59 @@ export class ChatRoom extends DurableObject<Env> {
     if (!userId) return json({ error: "Compte introuvable." }, 401);
 
     const url = new URL(request.url);
-    const conversationId = url.pathname.split("/").filter(Boolean).at(-1) ?? "";
-    if (!validId(conversationId)) return json({ error: "Conversation invalide." }, 400);
-    const membershipUrl = new URL(base + "/rest/v1/conversation_members");
-    membershipUrl.search = new URLSearchParams({ select: "conversation_id", conversation_id: "eq." + conversationId, user_id: "eq." + userId, limit: "1" }).toString();
-    const membership = await fetch(membershipUrl, { headers: { apikey: this.env.SUPABASE_PUBLISHABLE_KEY, "x-client-info": "safary-session:" + token } });
-    if (!membership.ok) return json({ error: "Vérification des droits impossible." }, 503);
-    const membershipRows = await membership.json() as Array<{ conversation_id: string }>;
-    if (!membershipRows.length) return json({ error: "Accès refusé à cette conversation." }, 403);
+    const parts = url.pathname.split("/").filter(Boolean);
+    const roomType = parts.at(-2);
+    const roomId = parts.at(-1) ?? "";
+    if (!validId(roomId) || (roomType !== "chat" && roomType !== "inbox")) return json({ error: "Canal invalide." }, 400);
+    let participants = [userId];
+    if (roomType === "inbox") {
+      if (roomId !== userId) return json({ error: "Accès refusé à cette boîte." }, 403);
+    } else {
+      const membershipUrl = new URL(base + "/rest/v1/conversation_members");
+      membershipUrl.search = new URLSearchParams({ select: "user_id", conversation_id: "eq." + roomId }).toString();
+      const membership = await fetch(membershipUrl, { headers: { apikey: this.env.SUPABASE_PUBLISHABLE_KEY, "x-client-info": "safary-session:" + token } });
+      if (!membership.ok) return json({ error: "Vérification des droits impossible." }, 503);
+      const membershipRows = await membership.json() as Array<{ user_id: string }>;
+      participants = [...new Set(membershipRows.map(row => row.user_id))];
+      if (!participants.includes(userId)) return json({ error: "Accès refusé à cette conversation." }, 403);
+    }
 
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     this.ctx.acceptWebSocket(server);
-    server.serializeAttachment({ userId, conversationId });
+    server.serializeAttachment({ userId, roomId, roomType, participants });
     return new Response(null, { status: 101, webSocket: client, headers: { "Sec-WebSocket-Protocol": "safary.v1" } });
   }
 
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
-    const attachment = ws.deserializeAttachment() as { userId: string; conversationId: string } | null;
-    if (!attachment || typeof message !== "string" || message.length > 2048) return;
+    const attachment = ws.deserializeAttachment() as { userId: string; roomId: string; roomType: string; participants: string[]; lastSyncAt?: number } | null;
+    if (!attachment || attachment.roomType !== "chat" || typeof message !== "string" || message.length > 2048) return;
     let payload: { type?: string };
     try { payload = JSON.parse(message); } catch { return; }
     if (payload.type !== "sync") return;
-    const event = JSON.stringify({ type: "sync", conversationId: attachment.conversationId, actorId: attachment.userId, at: Date.now() });
+    const now = Date.now();
+    if (attachment.lastSyncAt && now - attachment.lastSyncAt < 100) return;
+    ws.serializeAttachment({ ...attachment, lastSyncAt: now });
+    const event = JSON.stringify({ type: "sync", conversationId: attachment.roomId, actorId: attachment.userId, at: now });
     for (const socket of this.ctx.getWebSockets()) {
       if (socket === ws) continue;
-      const peer = socket.deserializeAttachment() as { conversationId?: string } | null;
-      if (peer?.conversationId === attachment.conversationId) {
+      const peer = socket.deserializeAttachment() as { roomId?: string; roomType?: string } | null;
+      if (peer?.roomType === "chat" && peer.roomId === attachment.roomId) {
+        try { socket.send(event); } catch { try { socket.close(1011, "send failed"); } catch {} }
+      }
+    }
+    const inboxEvent = JSON.stringify({ type: "inbox-sync", conversationId: attachment.roomId, actorId: attachment.userId, at: now });
+    await Promise.all(attachment.participants.filter(id => id !== attachment.userId).map(async id => {
+      const stub = this.env.CHAT_ROOMS.get(this.env.CHAT_ROOMS.idFromName("inbox:" + id));
+      await stub.notify(inboxEvent);
+    }));
+  }
+
+  async notify(event: string) {
+    if (event.length > 2048) return;
+    for (const socket of this.ctx.getWebSockets()) {
+      const attachment = socket.deserializeAttachment() as { roomType?: string } | null;
+      if (attachment?.roomType === "inbox") {
         try { socket.send(event); } catch { try { socket.close(1011, "send failed"); } catch {} }
       }
     }
@@ -84,8 +110,12 @@ export default {
     if (incoming.pathname.startsWith("/realtime/chat/")) {
       const conversationId = incoming.pathname.slice("/realtime/chat/".length);
       if (!validId(conversationId)) return json({ error: "Conversation invalide." }, 400);
-      const id = env.CHAT_ROOMS.idFromName(conversationId);
-      return env.CHAT_ROOMS.get(id).fetch(request);
+      return env.CHAT_ROOMS.get(env.CHAT_ROOMS.idFromName("chat:" + conversationId)).fetch(request);
+    }
+    if (incoming.pathname.startsWith("/realtime/inbox/")) {
+      const userId = incoming.pathname.slice("/realtime/inbox/".length);
+      if (!validId(userId)) return json({ error: "Compte invalide." }, 400);
+      return env.CHAT_ROOMS.get(env.CHAT_ROOMS.idFromName("inbox:" + userId)).fetch(request);
     }
 
     if (incoming.pathname === "/api/health") return json({ ok: true, service: "safary-api", provider: "cloudflare-workers" });
