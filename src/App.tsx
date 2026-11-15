@@ -33,6 +33,8 @@ export default function App(){
  const [profile,setProfile]=useState<Profile|null>(null);
  const [chats,setChats]=useState<ChatRow[]>([]);
  const [stories,setStories]=useState<Story[]>([]);
+ const [storyViewers,setStoryViewers]=useState<Array<{username:string;display_name:string;viewed_at:string}>>([]);
+ const [storyViewersOpen,setStoryViewersOpen]=useState(false);
  const [viewedProfile,setViewedProfile]=useState<Profile|null>(null);
  const [storyPreview,setStoryPreview]=useState('');
  const [messages,setMessages]=useState<Message[]>([]);
@@ -157,15 +159,16 @@ export default function App(){
   return()=>{active=false};
  },[client,user,loadProfile,loadHome]);
 
- const loadMessages=useCallback(async(id:string)=>{
+ const loadMessages=useCallback(async(id:string,peerId?:string)=>{
   if(!client||!user)return;
   const cacheKey='messages:'+id;const cachedMessages=readCache<Message[]>(cacheKey);if(cachedMessages)setMessages(cachedMessages);
   const {data,error}=await client.from('messages').select('id,conversation_id,sender_id,body,message_type,created_at').eq('conversation_id',id).order('created_at',{ascending:false}).limit(100);
   if(error){notify(error.message);return}
   const allRows=((data??[]) as Message[]).reverse();const ids=allRows.map(m=>m.id);
   const [hiddenResult,reactionResult]=ids.length?await Promise.all([client.from('message_user_hides').select('message_id').eq('user_id',user?.id??'').in('message_id',ids),client.from('message_reactions').select('id,message_id,user_id,reaction').in('message_id',ids)]):[{data:[],error:null},{data:[],error:null}];
-  if(contact?.id&&ids.length){const unread=allRows.filter(m=>m.sender_id!==user?.id).map(m=>({message_id:m.id,user_id:user.id}));if(unread.length){const written=await client.from('message_receipts').upsert(unread,{onConflict:'message_id,user_id',ignoreDuplicates:true});if(!written.error&&chatSocket.current?.readyState===WebSocket.OPEN)chatSocket.current.send(JSON.stringify({type:'sync'}))}}
-  const receiptResult=ids.length&&contact?.id?await client.from('message_receipts').select('message_id').eq('user_id',contact.id).in('message_id',ids):{data:[],error:null};
+  const activePeerId=peerId??contact?.id;
+  if(activePeerId&&ids.length){const unread=allRows.filter(m=>m.sender_id!==user?.id).map(m=>({message_id:m.id,user_id:user.id}));if(unread.length){const written=await client.from('message_receipts').upsert(unread,{onConflict:'message_id,user_id',ignoreDuplicates:true});if(!written.error&&chatSocket.current?.readyState===WebSocket.OPEN)chatSocket.current.send(JSON.stringify({type:'sync'}))}}
+  const receiptResult=ids.length&&activePeerId?await client.from('message_receipts').select('message_id').eq('user_id',activePeerId).in('message_id',ids):{data:[],error:null};
   const seenIds=new Set((receiptResult.data??[]).map((x:any)=>x.message_id));
   const hidden=new Set((hiddenResult.data??[]).map((x:any)=>x.message_id));const rows=allRows.filter(m=>!hidden.has(m.id));
   const result=ids.length?await client.from('message_attachments').select('id,message_id,storage_path,file_name,mime_type,size_bytes').in('message_id',ids):{data:[],error:null};
@@ -186,7 +189,7 @@ export default function App(){
   const nextMessages=rows.map(m=>({...m,attachments:byMessage.get(m.id)??[],reactions:(reactionResult.data??[]).filter((x:any)=>x.message_id===m.id) as Reaction[],seenByPeer:m.sender_id===user?.id&&seenIds.has(m.id)}));setMessages(nextMessages);writeCache(cacheKey,nextMessages.map(({attachments,...m})=>m));
  },[client,user,contact]);
  const openChat=useCallback(async(row:ChatRow)=>{
-  setContact(row.user);setConversationId(row.id);setScreen('chat');setMessages([]);await loadMessages(row.id);
+  setContact(row.user);setConversationId(row.id);setScreen('chat');setMessages([]);await loadMessages(row.id,row.user.id);
  },[loadMessages]);
 
  useEffect(()=>{
@@ -198,7 +201,7 @@ export default function App(){
    const scheme=window.location.protocol==='https:'?'wss:':'ws:';
    const socket=new WebSocket(scheme+'//'+window.location.host+'/realtime/inbox/'+user.id,['safary.v1','session.'+token]);
    inboxSocket.current=socket;
-   socket.onmessage=event=>{try{const payload=JSON.parse(String(event.data));if(payload.type==='inbox-sync'&&payload.actorId!==user.id)void loadHome(user.id);else if(payload.type==='presence')setPresence(prev=>({...prev,[payload.userId]:!!payload.online}));else if(payload.type==='presence-snapshot'){setPresence(prev=>{const next={...prev};for(const item of payload.users??[])next[item.userId]=!!item.online;return next})}else if(payload.type==='activity'){void loadHome(user.id);if(screen==='chat'&&conversationId)void loadMessages(conversationId)}}catch{}};
+   socket.onmessage=event=>{try{const payload=JSON.parse(String(event.data));if(payload.type==='inbox-sync'&&payload.actorId!==user.id){void loadHome(user.id);if(settings.notifications_enabled&&document.hidden&&'Notification' in window&&Notification.permission==='granted'){void (async()=>{const {data}=await client.from('messages').select('id,body,sender_id,created_at').eq('conversation_id',payload.conversationId).neq('sender_id',user.id).order('created_at',{ascending:false}).limit(1).maybeSingle();if(!data)return;const {data:sender}=await client.from('profiles').select('username').eq('id',data.sender_id).maybeSingle();new Notification(sender?.username??'Nouveau message',{body:data.body||'Tu as reçu une pièce jointe.',tag:'i-tafa-'+data.id})})()}}else if(payload.type==='presence')setPresence(prev=>({...prev,[payload.userId]:!!payload.online}));else if(payload.type==='presence-snapshot'){setPresence(prev=>{const next={...prev};for(const item of payload.users??[])next[item.userId]=!!item.online;return next})}else if(payload.type==='activity'){void loadHome(user.id);if(screen==='chat'&&conversationId)void loadMessages(conversationId)}}catch{}};
    socket.onerror=()=>socket.close();
    socket.onclose=()=>{if(inboxSocket.current===socket)inboxSocket.current=null;if(!stopped){retryTimer=window.setTimeout(connectInbox,retryDelay);retryDelay=Math.min(retryDelay*2,30000)}};
    socket.onopen=()=>{retryDelay=1000};
@@ -207,7 +210,7 @@ export default function App(){
   const onVisible=()=>{if(document.visibilityState==='visible'&&(!inboxSocket.current||inboxSocket.current.readyState>1))connectInbox()};
   document.addEventListener('visibilitychange',onVisible);window.addEventListener('online',onVisible);
   return()=>{stopped=true;window.clearTimeout(retryTimer);document.removeEventListener('visibilitychange',onVisible);window.removeEventListener('online',onVisible);const socket=inboxSocket.current;inboxSocket.current=null;if(socket){socket.onclose=null;socket.close()}};
- },[client,user,loadHome]);
+ },[client,user,loadHome,settings.notifications_enabled]);
 
  useEffect(()=>{
   if(!client||!user||!settings.online_status_visible){setPresence(prev=>({...prev,[user?.id??'']:false}));return}
@@ -259,7 +262,7 @@ export default function App(){
  const broadcastAppUpdate=()=>{const socket=presenceSocket.current;if(socket?.readyState===WebSocket.OPEN)socket.send(JSON.stringify({type:'activity'}))};
 
  const sendMessage=async(e:FormEvent)=>{
-  e.preventDefault();if(chatFile){await uploadChatFile(chatFile,chatFile.type.startsWith('image/')?'image':'file');setChatFile(null);setChatFilePreview('');return}const body=draft.trim();if(!client||!user||!conversationId||!body)return;
+  e.preventDefault();if(chatFile){const sent=await uploadChatFile(chatFile,chatFile.type.startsWith('image/')?'image':'file');if(sent){setChatFile(null);setChatFilePreview('')}return}const body=draft.trim();if(!client||!user||!conversationId||!body)return;
   setDraft('');const {data,error}=await client.from('messages').insert({conversation_id:conversationId,sender_id:user.id,body,message_type:'text'}).select('id,conversation_id,sender_id,body,message_type,created_at').single();
   if(error){setDraft(body);notify(error.message);return}
   setMessages(prev=>{const next=prev.some(m=>m.id===data.id)?prev:[...prev,data as Message];writeCache('messages:'+conversationId,next.map(({attachments,...m})=>m));return next});broadcastChatSync();
@@ -392,7 +395,8 @@ export default function App(){
   if(cover&&!cover.startsWith('http')){const signed=await client.storage.from('profile-media').createSignedUrl(cover,46800);cover=signed.data?.signedUrl??''}
   const resolved={...data,avatar_url:avatar,cover_url:cover} as Profile;setViewedProfile(resolved);writeCache('profile:'+person.id,resolved);setScreen('profile');
  };
- const showStory=(story:Story)=>{const index=stories.findIndex(item=>item.id===story.id);if(index>=0){setStoryIndex(index);setScreen('story-viewer')}};
+ const showStory=async(story:Story)=>{const index=stories.findIndex(item=>item.id===story.id);if(index<0)return;setStoryIndex(index);setStoryViewersOpen(false);setScreen('story-viewer');if(story.user_id!==user?.id&&client&&user){const {error}=await client.from('story_views').upsert({story_id:story.id,viewer_id:user.id},{onConflict:'story_id,viewer_id',ignoreDuplicates:true});if(error)notify('Impossible d’enregistrer la vue de cette story.')}};
+ const openStoryViewers=async()=>{if(!client||!user||!activeStory||activeStory.user_id!==user.id)return;const {data,error}=await client.from('story_views').select('viewer_id,viewed_at').eq('story_id',activeStory.id).order('viewed_at',{ascending:false});if(error){notify('Impossible de charger les vues.');return}const ids=[...new Set((data??[]).map((v:any)=>v.viewer_id as string))];const people=ids.length?await client.from('profiles').select('id,username,display_name').in('id',ids):{data:[],error:null};if(people.error){notify('Impossible de charger les profils des visiteurs.');return}const byId=new Map((people.data??[]).map((p:any)=>[p.id,p]));setStoryViewers((data??[]).map((v:any)=>({username:byId.get(v.viewer_id)?.username??'Membre',display_name:byId.get(v.viewer_id)?.display_name??'',viewed_at:v.viewed_at})));setStoryViewersOpen(true)};
   const clearLongPress=()=>{if(longPressTimer.current!==null){window.clearTimeout(longPressTimer.current);longPressTimer.current=null}};
   const beginMessagePress=(message:Message)=>{clearLongPress();longPressTimer.current=window.setTimeout(()=>setActiveMessage(message),550)};
   const reactToMessage=async(message:Message,emoji:string)=>{if(!client||!user)return;const existing=message.reactions?.find(r=>r.user_id===user.id);const result=existing?.reaction===emoji?await client.from('message_reactions').delete().eq('id',existing.id):await client.from('message_reactions').upsert({message_id:message.id,user_id:user.id,reaction:emoji},{onConflict:'message_id,user_id'});if(result.error)notify(result.error.message);else{await loadMessages(conversationId);broadcastChatSync()}setActiveMessage(null)};
@@ -424,11 +428,13 @@ export default function App(){
   finally{setBusy(false)}
  };
  const updateSetting=async(key:'online_status_visible'|'notifications_enabled',value:boolean)=>{
-  if(!client||!user)return;const next={...settings,[key]:value};setSettings(next);
+  if(!client||!user)return;
+  if(key==='notifications_enabled'&&value){if(!('Notification' in window)){notify('Les notifications du navigateur ne sont pas disponibles sur cet appareil.');return}const permission=Notification.permission==='default'?await Notification.requestPermission():Notification.permission;if(permission!=='granted'){notify('Autorise les notifications dans les réglages du navigateur pour les activer.');return}}
+  const next={...settings,[key]:value};setSettings(next);
   const {error}=await client.from('user_settings').update({...next,updated_at:new Date().toISOString()}).eq('user_id',user.id);
   if(error){setSettings(settings);notify(error.message)}else{broadcastAppUpdate()}if(!error&&key==='online_status_visible'&&!value){setPresence({});notify('Ton statut en ligne est masqué.')}else if(!error&&key==='online_status_visible'&&value){notify('Ton statut en ligne est activé.')} 
  };
- const signOut=async()=>{if(client){const currentUserId=user?.id;const {error}=await client.functions.invoke('safary-auth',{body:{action:'logout'}});if(error)notify(error.message);localStorage.removeItem('safary_session');Object.keys(localStorage).filter(k=>k.startsWith(CACHE_PREFIX)).forEach(k=>localStorage.removeItem(k));if(currentUserId&&'caches' in window)await caches.delete('safary-media-v1-'+currentUserId);setScreen('auth');setSession(null);setUser(null);setProfile(null);setChats([]);setStories([]);setMessages([])}};
+ const signOut=async()=>{if(client){const currentUserId=user?.id;const {error}=await client.functions.invoke('safary-auth',{body:{action:'logout'}});if(error)notify(error.message);localStorage.removeItem('safary_session');Object.keys(localStorage).filter(k=>k.startsWith(CACHE_PREFIX)).forEach(k=>localStorage.removeItem(k));if(currentUserId&&'caches' in window)await caches.delete('safary-media-v1-'+currentUserId);setScreen('auth');setSession(null);setUser(null);setProfile(null);setContact(null);setConversationId('');setViewedProfile(null);setChats([]);setStories([]);setMessages([]);setPresence({});setActiveMessage(null);setStoryViewersOpen(false)}};
 
  const groupedStories=useMemo(()=>{const map=new Map<string,Story[]>();for(const s of stories){const list=map.get(s.user_id)??[];list.push(s);map.set(s.user_id,list)}return [...map.values()].map(items=>items[0])},[stories]);
  const activeStory=stories[storyIndex];
@@ -479,7 +485,7 @@ export default function App(){
     {storyPreview?(storyFile?.type.startsWith('video/')?<video src={storyPreview} muted autoPlay loop playsInline/>:<img src={storyPreview} alt="Aperçu de la story"/>):<><span className="story-drop-icon"><ImagePlus/></span><strong>Ajoute ton média</strong><small>JPG, PNG, WebP, GIF ou vidéo · 50 Mo max</small></>}
     <span className="story-choose"><Camera size={17}/> {storyFile?'Changer le média':'Choisir depuis la galerie'}</span><input type="file" accept={MIME_TYPES.join(',')} onChange={e=>{const f=e.target.files?.[0]??null;setStoryFile(f);setStoryPreview(f?URL.createObjectURL(f):'')}}/>
    </label><div className="story-caption-wrap"><label htmlFor="story-caption">Légende <span>{storyCaption.length}/300</span></label><textarea id="story-caption" className="story-caption" placeholder="Écris quelque chose à partager…" value={storyCaption} onChange={e=>setStoryCaption(e.target.value)} maxLength={300}/></div><div className="story-composer-footer"><span><i/> Visible pendant 48 h</span><button className="gradient-button" disabled={!storyFile||busy} onClick={()=>void publishStory()}>{busy?'Publication…':'Publier la story'} <ChevronRight size={17}/></button></div></div></SubScreen>}
-  {screen==='story-viewer'&&activeStory&&<div className="story-viewer"><header><button onClick={()=>setScreen('messages')}><X/></button><button className="story-owner-link" onClick={()=>void openProfile(activeStory.profile)}><Avatar profile={activeStory.profile} size="small"/><strong>{activeStory.profile.username}</strong></button><time>{timeLabel(activeStory.created_at)}</time>{activeStory.user_id===user.id&&<button className="push-right" onClick={()=>void deleteStory()} aria-label="Supprimer"><Trash2/></button>}</header>{activeStory.media_type==='video'?<video src={activeStory.url} controls autoPlay playsInline/>:<img src={activeStory.url} alt={activeStory.caption||'Story i-tafa'}/>}<p>{activeStory.caption}</p><footer><button onClick={()=>setStoryIndex(i=>Math.max(0,i-1))} disabled={storyIndex===0}>Précédente</button><button onClick={()=>setStoryIndex(i=>Math.min(stories.length-1,i+1))} disabled={storyIndex>=stories.length-1}>Suivante</button></footer></div>}
+  {screen==='story-viewer'&&activeStory&&<div className="story-viewer"><header><button onClick={()=>setScreen('messages')}><X/></button><button className="story-owner-link" onClick={()=>void openProfile(activeStory.profile)}><Avatar profile={activeStory.profile} size="small"/><strong>{activeStory.profile.username}</strong></button><time>{timeLabel(activeStory.created_at)}</time>{activeStory.user_id===user.id&&<button className="push-right" onClick={()=>void deleteStory()} aria-label="Supprimer"><Trash2/></button>}</header>{activeStory.user_id===user.id&&<button className="story-views-button" onClick={()=>void openStoryViewers()}>Voir les vues</button>}{activeStory.media_type==='video'?<video src={activeStory.url} controls autoPlay playsInline/>:<img src={activeStory.url} alt={activeStory.caption||'Story i-tafa'}/>}<p>{activeStory.caption}</p>{storyViewersOpen&&<div className="story-viewers-backdrop" onClick={()=>setStoryViewersOpen(false)}><div className="story-viewers-panel" onClick={e=>e.stopPropagation()}><header><strong>Vues de la story ({storyViewers.length})</strong><button onClick={()=>setStoryViewersOpen(false)} aria-label="Fermer"><X/></button></header>{storyViewers.length?storyViewers.map((v,i)=><div className="story-viewer-row" key={v.username+'-'+i}><span><strong>{v.username}</strong><small>{v.display_name}</small></span><time>{timeLabel(v.viewed_at)}</time></div>):<p>Personne n’a encore vu cette story.</p>}</div></div>}<footer><button onClick={()=>setStoryIndex(i=>Math.max(0,i-1))} disabled={storyIndex===0}>Précédente</button><button onClick={()=>setStoryIndex(i=>Math.min(stories.length-1,i+1))} disabled={storyIndex>=stories.length-1}>Suivante</button></footer></div>}
   {screen==='story-viewer'&&!activeStory&&<SubScreen title="Story" onBack={()=>setScreen('messages')}><div className="empty-state">Aucune story disponible.</div></SubScreen>}
   {screen==='profile'&&<SubScreen title={viewedProfile?'Profil':'Mon profil'} onBack={()=>{setViewedProfile(null);setScreen('messages')}}><div className="profile-preview">
    <div className="profile-cover-preview" style={{backgroundImage:(viewedProfile||profile)?.cover_url?`url("${(viewedProfile||profile)?.cover_url}")`:undefined}}>{!(viewedProfile||profile)?.cover_url&&<span>Photo de couverture</span>}</div>
